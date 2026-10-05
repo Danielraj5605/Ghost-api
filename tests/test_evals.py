@@ -35,6 +35,10 @@ def test_normalize_and_matches() -> None:
     assert matches("POST x-dsn.algolia.net/1/indexes/{index}/query", "POST */1/indexes/{}/query")
     assert not matches("POST /1/indexes/{index}/query", "POST */1/indexes/{}/query")  # own host
     assert not matches("GET /api/products", "POST /api/products")
+    # A single sample isn't generalised to a template yet, but it is the real endpoint.
+    assert matches("POST x-dsn.algolia.net/1/indexes/Item_dev/query", "POST */1/indexes/{}/query")
+    assert matches("GET /api/products/7", "GET /api/products/{}")
+    assert not matches("GET /api/products/7/reviews", "GET /api/products/{}")
 
 
 def test_score() -> None:

@@ -103,9 +103,12 @@ def test_server_errors_are_retried_then_fall_back() -> None:
 
 def test_retry_after_header_is_honored_and_capped() -> None:
     fake = Fake(
-        alpha=[httpx.Response(503, headers={"retry-after": "7"}),
-               httpx.Response(503, headers={"retry-after": "999"}), ok("x")],
-    )  # fmt: skip
+        alpha=[
+            httpx.Response(503, headers={"retry-after": "7"}),
+            httpx.Response(503, headers={"retry-after": "999"}),
+            ok("x"),
+        ],
+    )
     gw = gateway(fake)
     gw.ask(ASK)
     assert gw.sleeps == [7.0, 20.0]  # type: ignore[attr-defined]
@@ -113,10 +116,12 @@ def test_retry_after_header_is_honored_and_capped() -> None:
 
 def test_quota_error_cools_the_provider_down() -> None:
     now = [0.0]
-    gemini_429 = [{"error": {"code": 429, "message": "quota exceeded",
-                             "details": [{"retryDelay": "37s"}]}}]  # fmt: skip
-    fake = Fake(alpha=[httpx.Response(429, json=gemini_429), ok("alpha back")],
-                beta=[ok("b1"), ok("b2")])  # fmt: skip
+    gemini_429 = [
+        {"error": {"code": 429, "message": "quota exceeded", "details": [{"retryDelay": "37s"}]}}
+    ]
+    fake = Fake(
+        alpha=[httpx.Response(429, json=gemini_429), ok("alpha back")], beta=[ok("b1"), ok("b2")]
+    )
     gw = gateway(fake, clock=lambda: now[0])
     assert gw.ask(ASK).provider == "beta"  # no retries on the same provider
     assert fake.hosts() == ["alpha", "beta"]
@@ -168,8 +173,8 @@ def test_all_providers_fail() -> None:
     fake = Fake(alpha=[httpx.Response(500)] * 3, beta=[httpx.Response(400, text="bad model")])
     with pytest.raises(LLMUnavailable) as err:
         gateway(fake).ask(ASK)
-    assert set(err.value.errors) == {"alpha", "beta"}
-    assert "HTTP 400" in err.value.errors["beta"]
+    assert set(err.value.errors) == {"alpha/a-model", "beta/b-model"}
+    assert "HTTP 400" in err.value.errors["beta/b-model"]
 
 
 def test_network_error_is_retried() -> None:
@@ -264,8 +269,8 @@ def test_error_messages_are_reported_for_list_and_dict_bodies() -> None:
     )
     with pytest.raises(LLMUnavailable) as err:
         gateway(fake).ask(ASK)
-    assert "high demand" in err.value.errors["alpha"]
-    assert "model not found" in err.value.errors["beta"]
+    assert "high demand" in err.value.errors["alpha/a-model"]
+    assert "model not found" in err.value.errors["beta/b-model"]
 
 
 def test_waits_once_when_every_provider_is_briefly_rate_limited() -> None:
@@ -280,15 +285,21 @@ def test_waits_once_when_every_provider_is_briefly_rate_limited() -> None:
         alpha=[httpx.Response(429, headers={"retry-after": "20"}), ok("alpha after wait")],
         beta=[httpx.Response(429, headers={"retry-after": "300"})],
     )
-    gw = LLMGateway([A, B], client=httpx.Client(transport=httpx.MockTransport(fake)),
-                    sleep=sleep, clock=lambda: now[0])  # fmt: skip
+    gw = LLMGateway(
+        [A, B],
+        client=httpx.Client(transport=httpx.MockTransport(fake)),
+        sleep=sleep,
+        clock=lambda: now[0],
+    )
     assert gw.ask(ASK).text == "alpha after wait"
     assert sleeps == [21.0]
 
 
 def test_does_not_wait_for_long_cooldowns() -> None:
-    fake = Fake(alpha=[httpx.Response(429, headers={"retry-after": "3600"})],
-                beta=[httpx.Response(429, headers={"retry-after": "7200"})])  # fmt: skip
+    fake = Fake(
+        alpha=[httpx.Response(429, headers={"retry-after": "3600"})],
+        beta=[httpx.Response(429, headers={"retry-after": "7200"})],
+    )
     gw = gateway(fake)
     with pytest.raises(LLMUnavailable):
         gw.ask(ASK)
@@ -301,3 +312,91 @@ def test_default_order_includes_the_lite_gemini_model(monkeypatch: pytest.Monkey
     providers = {p.name: p for p in default_providers()}
     assert list(providers) == ["gemini", "groq", "gemini-lite", "openrouter"]
     assert providers["gemini-lite"].model == "lite-x"
+
+
+# --- model-level routing (several candidate models per provider) ---
+
+MULTI = Provider("alpha", "https://alpha.test/v1", "a1", api_key="K", fallback_models=("a2", "a3"))
+
+
+def model_of(request: httpx.Request) -> str:
+    return str(json.loads(request.content)["model"])
+
+
+def routed(responses: dict[str, list[httpx.Response]]) -> tuple[LLMGateway, list[str]]:
+    """Fake API answering per model name; returns the gateway and the models it called."""
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = model_of(request) if request.url.host.startswith("alpha") else "beta"
+        called.append(model)
+        return responses[model].pop(0)
+
+    gw = LLMGateway(
+        [MULTI, B],
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda s: None,
+    )
+    return gw, called
+
+
+def test_retired_model_moves_to_the_next_model_and_stays_dead() -> None:
+    gw, called = routed(
+        {
+            "a1": [httpx.Response(404, json={"error": {"message": "retired"}})],
+            "a2": [ok("from a2"), ok("again a2")],
+        }
+    )
+    first = gw.ask(ASK)
+    assert (first.provider, first.model, first.text) == ("alpha", "a2", "from a2")
+    gw.ask([{"role": "user", "content": "second"}])
+    assert called == ["a1", "a2", "a2"]  # a1 is not tried again
+
+
+def test_rate_limited_model_uses_another_model_of_the_same_provider() -> None:
+    gw, called = routed(
+        {"a1": [httpx.Response(429, headers={"retry-after": "30"})], "a2": [ok("a2 answers")]}
+    )
+    assert gw.ask(ASK).model == "a2"
+    assert called == ["a1", "a2"]
+
+
+def test_bad_key_disables_every_model_of_the_provider() -> None:
+    gw, called = routed(
+        {"a1": [httpx.Response(401, json={"error": "bad key"})], "beta": [ok("beta"), ok("beta 2")]}
+    )
+    assert gw.ask(ASK).provider == "beta"
+    gw.ask([{"role": "user", "content": "second"}])
+    assert called == ["a1", "beta", "beta"]  # a2 and a3 never tried
+
+
+def test_waits_when_the_only_living_route_is_briefly_rate_limited() -> None:
+    """The evaluation bug: dead (404) routes must not stop the gateway from waiting."""
+    now = [0.0]
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host.startswith("beta"):
+            return httpx.Response(404, json={"error": {"message": "model unavailable"}})
+        if now[0] < 5:
+            return httpx.Response(429, headers={"retry-after": "8"})
+        return ok("after the wait")
+
+    single = Provider("alpha", "https://alpha.test/v1", "a1", api_key="K")
+    gw = LLMGateway(
+        [single, B],
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=sleep,
+        clock=lambda: now[0],
+    )
+    assert gw.ask(ASK).text == "after the wait"
+    assert sleeps == [9.0]
+
+
+def test_default_providers_have_fallback_models() -> None:
+    for p in default_providers():
+        assert p.fallback_models, p.name

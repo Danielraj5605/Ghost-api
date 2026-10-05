@@ -21,7 +21,7 @@ import re
 import time
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Generic, TypeVar
 
 import httpx
@@ -71,6 +71,10 @@ class _Retryable(Exception):
 class _Fatal(Exception):
     """Provider can't serve this request (bad key, bad model, bad request)."""
 
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 @dataclass
 class Usage:
@@ -110,13 +114,21 @@ class LLMGateway:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.providers = [p for p in providers if p.api_key]
+        # One route per (provider, model): each provider's candidate models, in order.
+        self._routes = [
+            replace(p, model=m)
+            for p in self.providers
+            for m in dict.fromkeys((p.model, *p.fallback_models))
+        ]
+        self._dead: set[str] = set()  # route keys whose model is gone (404)
+        self._disabled: set[str] = set()  # provider names with a bad key (401/403)
         self.store = store
         self.max_calls = max_calls
         self.usage = Usage()
         self._client = client or httpx.Client(timeout=TIMEOUT_S)
         self._sleep = sleep
         self._clock = clock
-        self._cooldown_until: dict[str, float] = {}  # provider name -> clock time
+        self._cooldown_until: dict[str, float] = {}  # route key -> clock time
 
     def close(self) -> None:
         self._client.close()
@@ -135,7 +147,7 @@ class LLMGateway:
         if response_model is not None:
             messages = _with_json_instructions(messages, response_model)
 
-        for provider in self.providers:
+        for provider in self._routes:
             cached = self._cache_get(provider, messages, temperature)
             if cached is not None:
                 parsed = _parse(cached, response_model) if response_model else None
@@ -154,11 +166,18 @@ class LLMGateway:
             self._sleep(wait)
             return self._ask_chain(messages, response_model, temperature)
 
+    def _alive(self) -> list[Provider]:
+        return [
+            r for r in self._routes if _key(r) not in self._dead and r.name not in self._disabled
+        ]
+
     def _shortest_cooldown(self) -> float | None:
+        """Seconds until a usable route frees up, if every usable route is rate-limited."""
         now = self._clock()
-        waits = [until - now for until in self._cooldown_until.values() if until > now]
-        if len(waits) < len(self.providers):
-            return None  # some provider failed for a reason other than rate limits
+        alive = self._alive()
+        waits = [self._cooldown_until.get(_key(r), 0.0) - now for r in alive]
+        if not alive or any(w <= 0 for w in waits):
+            return None  # nothing left, or something failed for another reason
         return min(waits) + 1.0
 
     def _ask_chain(
@@ -168,22 +187,30 @@ class LLMGateway:
         temperature: float,
     ) -> LLMReply[T]:
         errors: dict[str, str] = {}
-        for provider in self.providers:
-            wait = self._cooldown_until.get(provider.name, 0.0) - self._clock()
+        for route in self._alive():
+            key = _key(route)
+            if key in self._dead or route.name in self._disabled:
+                continue  # ruled out earlier in this same request
+            wait = self._cooldown_until.get(key, 0.0) - self._clock()
             if wait > 0:
-                errors[provider.name] = f"rate-limited, cooling down for {wait:.0f}s"
+                errors[key] = f"rate-limited, cooling down for {wait:.0f}s"
                 continue
             try:
-                return self._ask_provider(provider, messages, response_model, temperature)
+                return self._ask_provider(route, messages, response_model, temperature)
             except BudgetExceeded:
                 raise
             except (_Retryable, _Fatal, _InvalidReply) as exc:
                 if isinstance(exc, _Retryable) and exc.quota:
+                    # Limits are per model: this model rests, the next one is tried.
                     cooldown = exc.retry_after or DEFAULT_COOLDOWN_S
-                    self._cooldown_until[provider.name] = self._clock() + cooldown
-                errors[provider.name] = str(exc)
+                    self._cooldown_until[key] = self._clock() + cooldown
+                elif isinstance(exc, _Fatal) and exc.status in (401, 403):
+                    self._disabled.add(route.name)  # bad key: no model of it will work
+                elif isinstance(exc, _Fatal) and exc.status == 404:
+                    self._dead.add(key)  # model retired or unknown: try the next one
+                errors[key] = str(exc)
                 self.usage.fallbacks += 1
-                self.usage.problems[f"{provider.name}: {str(exc)[:70]}"] += 1
+                self.usage.problems[f"{key}: {str(exc)[:70]}"] += 1
         raise LLMUnavailable(errors)
 
     # --- internals ---
@@ -280,7 +307,7 @@ class LLMGateway:
                 quota=resp.status_code == 429,
             )
         if resp.status_code >= 400:
-            raise _Fatal(f"HTTP {resp.status_code}: {_error_message(resp)}")
+            raise _Fatal(f"HTTP {resp.status_code}: {_error_message(resp)}", resp.status_code)
 
         try:
             data = resp.json()
@@ -321,6 +348,10 @@ class LLMGateway:
 
 class _InvalidReply(Exception):
     pass
+
+
+def _key(route: Provider) -> str:
+    return f"{route.name}/{route.model}"
 
 
 # --- JSON helpers ---------------------------------------------------------------------------

@@ -88,14 +88,22 @@ def endpoint_label(ep: Endpoint, target_host: str) -> str:
 
 
 def matches(found: str, wanted: str) -> bool:
-    found, wanted = normalize(found), normalize(wanted)
-    if found == wanted:
-        return True
-    if " */" in wanted:  # any host
-        method, path = wanted.split(" */", 1)
-        f_method, f_rest = found.split(" ", 1)
-        return f_method == method and f_rest.endswith("/" + path) and not f_rest.startswith("/")
-    return False
+    """Does a found endpoint match an expected one?
+
+    `{}` in the expected path matches any one segment, so an endpoint seen with a single
+    value (`/indexes/Item_dev/query`, not yet generalised to a template) still counts as
+    found. `*/` as the host means "any other host" (a third-party API).
+    """
+    method, _, target = normalize(wanted).partition(" ")
+    f_method, _, f_target = normalize(found).partition(" ")
+    if method != f_method:
+        return False
+    if target.startswith("*/"):
+        if f_target.startswith("/"):
+            return False  # must be on another host
+        f_target, target = f_target[f_target.index("/") :], target[1:]
+    pattern = re.escape(target).replace(re.escape("{}"), r"[^/]+")
+    return re.fullmatch(pattern, f_target) is not None
 
 
 def score(
