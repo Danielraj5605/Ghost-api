@@ -1,4 +1,5 @@
-"""Command-line entry point: `ghost-api run | generate | doctor | inspect | refresh`."""
+"""Command-line entry point: `ghost-api run | refresh | generate | verify | report | inspect |
+doctor`."""
 
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import Settings, default_db_path, load_env
+from ghost_api.export import write_exports
 from ghost_api.generator import (
     GenerationResult,
     NothingToGenerate,
@@ -413,6 +415,9 @@ def _finish(
         )
         learned += store.add_lessons(host, s.run_id, texts, "llm")
     store.finish_run(s.run_id, status)
+    if s.gateway is not None:
+        store.record_usage(s.run_id, s.gateway.usage.answered, s.gateway.usage.tokens)
+    exports = write_exports(store, host, s.run_id, out, generated.spec if generated else None)
 
     console.print()
     console.print(f"[bold]Finished:[/] {status} ({reason})")
@@ -423,8 +428,8 @@ def _finish(
         console.print(f"[yellow]No client generated:[/] {generation_error}")
     if learned:
         console.print(f"[dim]Remembered {learned} new lesson(s) for next time[/]")
+    console.print(f"[dim]Report: {exports.report}   OpenAPI: {exports.openapi}[/]")
     if s.gateway is not None:
-        store.record_usage(s.run_id, s.gateway.usage.answered, s.gateway.usage.tokens)
         s.gateway.close()
         u = s.gateway.usage
         providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"
@@ -593,6 +598,33 @@ def generate(
     _print_generated(result)
 
 
+def _replay_run(path: Path, run_id: int) -> None:
+    """Print a past run step by step, for debugging (NFR-33)."""
+    with Store(path) as store:
+        run_row = store.get_run(run_id)
+        if run_row is None:
+            console.print(f"Run #{run_id} not found.")
+            raise typer.Exit(code=1)
+        steps = store.steps_for_run(run_id)
+        hypotheses = store.hypotheses_for_run(run_id)
+    console.print(f"[bold]Run #{run_row.id}[/] on {run_row.domain}: {run_row.goal}")
+    console.print(
+        f"Status {run_row.status}, {run_row.request_count} requests, {run_row.llm_calls} LLM "
+        f"calls, started {run_row.started_at}"
+    )
+    for s in steps:
+        step_args = s["args"] if isinstance(s["args"], dict) else {}
+        args = ", ".join(f"{k}={v!r}" for k, v in step_args.items())
+        console.print(f"[bold]Step {s['step_no']}[/] {s['action']}({args})  [dim]{s['thought']}[/]")
+        console.print(f"   [dim]{s['result']}[/]")
+    if not steps:
+        console.print("[dim]No agent steps in this run.[/]")
+    for h in hypotheses:
+        style = RESULT_STYLE[str(h["result"])]
+        label = f"[{style}]{h['result']:<12}[/] {h['endpoint_key']}: {h['text']}"
+        console.print(f"  {label}  [dim]{h['evidence']}[/]")
+
+
 def _print_generated(result: GenerationResult) -> None:
     spec, client = result.spec, result.client
     how = "names chosen by the LLM" if result.named_by_llm else "names derived from URLs"
@@ -657,6 +689,30 @@ def verify(
         _print_generated(report.result)
     if any(state == "failed" for state, _ in report.statuses.values()):
         raise typer.Exit(code=1)
+
+
+@app.command()
+def report(
+    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    run_id: Annotated[
+        int | None, typer.Option("--run", help="Run to report on (default: the latest).")
+    ] = None,
+    out: Annotated[Path, typer.Option(help="Folder for generated files.")] = Path("output"),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Write report.md and openapi.yaml for a site from what is stored."""
+    path = db or default_db_path()
+    if not path.exists():
+        console.print(f"No database at {path}. Run `ghost-api run` first.")
+        raise typer.Exit(code=1)
+    with Store(path) as store:
+        run_row = store.get_run(run_id) if run_id else store.latest_run(domain)
+        if run_row is None or run_row.domain != domain:
+            console.print(f"No run found for {domain}.")
+            raise typer.Exit(code=1)
+        exports = write_exports(store, domain, run_row.id, out)
+    console.print(f"Report:  {exports.report}")
+    console.print(f"OpenAPI: {exports.openapi}")
 
 
 @app.command()
@@ -839,13 +895,19 @@ def _missing(s: _Session, mem: DomainMemory) -> list[Endpoint]:
 @app.command()
 def inspect(
     domain: Annotated[str | None, typer.Argument(help="Domain to show; omit for all.")] = None,
+    run_id: Annotated[
+        int | None, typer.Option("--run", help="Replay one run's step log and test results.")
+    ] = None,
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
-    """Show what's stored for a site."""
+    """Show what's stored for a site, or replay one run with --run."""
     path = db or default_db_path()
     if not path.exists():
         console.print(f"No database at {path}. Run `ghost-api run` first.")
         raise typer.Exit(code=1)
+    if run_id is not None:
+        _replay_run(path, run_id)
+        return
     with Store(path) as store:
         runs = store.list_runs(domain)
         latest = store.latest_endpoint_run(domain) if domain else None

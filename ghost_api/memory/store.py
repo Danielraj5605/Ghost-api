@@ -148,6 +148,7 @@ class RunRow:
     status: str
     request_count: int
     llm_calls: int = 0
+    tokens: int = 0
 
 
 def _now() -> str:
@@ -216,6 +217,7 @@ class Store:
                 status=r["status"],
                 request_count=r["request_count"],
                 llm_calls=r["llm_calls"],
+                tokens=r["tokens"],
             )
             for r in rows
         ]
@@ -265,6 +267,9 @@ class Store:
             (domain,),
         )
         return self._requests(rows)
+
+    def get_run(self, run_id: int) -> RunRow | None:
+        return next((r for r in self.list_runs() if r.id == run_id), None)
 
     def latest_run(self, domain: str) -> RunRow | None:
         runs = self.list_runs(domain)

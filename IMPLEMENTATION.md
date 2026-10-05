@@ -730,11 +730,11 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** clear outputs a human can trust.
 
 **Tasks**
-- [ ] `report.md`: summary, endpoint table with status, confidence and sample count, hypotheses, reasoning log, known issues
-- [ ] Confidence score per endpoint: based on samples, verification and hypotheses
-- [ ] Usage block: LLM calls, tokens, time, cost ($0)
-- [ ] `generator/openapi_gen.py`: OpenAPI 3 YAML from the endpoint map
-- [ ] Save full runs so they can be replayed for debugging
+- [x] `report.md`: summary and usage (LLM calls, tokens, captured requests, duration, $0), endpoint table with status, confidence and samples, hypotheses with evidence, the agent's reasoning log, known issues, lessons
+- [x] Confidence score per endpoint from evidence: verified +2, failed -3, callable directly +1, pagination confirmed +1, 2-4 samples +1 / 5+ samples +2; High >= 4, Medium 2-3, Low < 2
+- [x] OpenAPI 3.1 export (`ghost_api/export/openapi.py`; 3.1 because the inferred schemas use JSON Schema type lists): read-only endpoints only, secrets as security schemes, third-party hosts as per-operation servers, pagination parameters optional with a default, `x-ghost-api` status/confidence on each operation
+- [x] Both files are written at the end of every `run` and `refresh`, and by `ghost-api report <domain> [--run N]`, from the database only
+- [x] Runs can be replayed for debugging: `ghost-api inspect --run N` prints the step log and test results
 
 **Deliverable:** the complete `output/<domain>/` folder.
 
