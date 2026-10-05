@@ -26,6 +26,7 @@ from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import Settings, default_db_path, load_env
+from ghost_api.errors import friendly_error
 from ghost_api.export import write_exports
 from ghost_api.generator import (
     GenerationResult,
@@ -191,8 +192,8 @@ def run(
         except KeyboardInterrupt:
             status, reason = "interrupted", "stopped by user"
         except Exception as exc:
-            console.print(f"[red]Browser error:[/] {exc}")
-            reason = str(exc)
+            console.print(f"[red]Error:[/] {friendly_error(exc)}")
+            reason = friendly_error(exc)
         _finish(
             s,
             status,
@@ -843,8 +844,8 @@ def refresh(
         except KeyboardInterrupt:
             status, reason = "interrupted", "stopped by user"
         except Exception as exc:
-            console.print(f"[red]Browser error:[/] {exc}")
-            reason = str(exc)
+            console.print(f"[red]Error:[/] {friendly_error(exc)}")
+            reason = friendly_error(exc)
         _finish(
             s,
             status,

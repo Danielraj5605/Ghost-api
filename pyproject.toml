@@ -22,7 +22,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "openapi-spec-validator>=0.7", "types-PyYAML"]
+dev = [
+    "pytest>=8", "ruff>=0.6", "mypy>=1.11", "openapi-spec-validator>=0.7", "types-PyYAML",
+    "psutil>=5.9", "types-psutil",
+]
 
 [project.scripts]
 ghost-api = "ghost_api.cli:app"

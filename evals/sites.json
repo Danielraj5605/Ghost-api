@@ -1,0 +1,34 @@
+[
+  {
+    "name": "demo-shop",
+    "url": "local:demo_shop",
+    "goal": "list products by category, search products, and open a product with its reviews",
+    "expected": [
+      "GET /api/categories",
+      "GET /api/products",
+      "GET /api/products/{}",
+      "GET /api/products/{}/reviews",
+      "GET /api/search"
+    ],
+    "real": ["POST /api/cart"],
+    "forbidden": ["POST /api/cart"]
+  },
+  {
+    "name": "quotes",
+    "url": "https://quotes.toscrape.com/scroll",
+    "goal": "list quotes with their authors and tags",
+    "expected": ["GET /api/quotes"]
+  },
+  {
+    "name": "hn-algolia",
+    "url": "https://hn.algolia.com/",
+    "goal": "search Hacker News stories and comments",
+    "expected": ["POST */1/indexes/{}/query"]
+  },
+  {
+    "name": "books-no-api",
+    "url": "https://books.toscrape.com/",
+    "goal": "list books and get book details",
+    "expected": []
+  }
+]
