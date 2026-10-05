@@ -48,6 +48,25 @@ def name_endpoints(
     return reply.parsed
 
 
+def plan_for(
+    store: Store, llm: LLMGateway | None, domain: str, endpoints: list[Endpoint]
+) -> NamingPlan | None:
+    """Reuse the stored naming plan if it covers every endpoint; otherwise ask the LLM once
+    and store the new plan (Stage 8: no LLM call when nothing changed)."""
+    stored = store.load_naming_plan(domain)
+    if stored:
+        try:
+            plan = NamingPlan.model_validate_json(stored)
+        except ValueError:
+            plan = None
+        if plan is not None and {e.key for e in endpoints} <= {n.key for n in plan.endpoints}:
+            return plan
+    plan = name_endpoints(llm, domain, endpoints)
+    if plan is not None:
+        store.save_naming_plan(domain, plan.model_dump_json())
+    return plan
+
+
 def generate_from(
     domain: str,
     start_url: str,
@@ -74,5 +93,5 @@ def generate_client(
         raise NothingToGenerate(f"no endpoints stored for {domain}; run `ghost-api run` first")
     endpoints = store.load_endpoints(domain, run_id)
     requests = store.requests_for_domain(domain)
-    plan = name_endpoints(llm, domain, endpoints)
+    plan = plan_for(store, llm, domain, endpoints)
     return generate_from(domain, run.start_url, endpoints, requests, out_root, plan)

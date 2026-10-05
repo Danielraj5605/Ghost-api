@@ -98,6 +98,22 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     created_at   TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lessons (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain     TEXT NOT NULL,
+    run_id     INTEGER REFERENCES runs(id),
+    text       TEXT NOT NULL,
+    source     TEXT NOT NULL CHECK (source IN ('auto', 'llm')),
+    created_at TEXT NOT NULL,
+    UNIQUE (domain, text)
+);
+
+CREATE TABLE IF NOT EXISTS naming_plans (
+    domain     TEXT PRIMARY KEY,
+    plan       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_cache (
     prompt_hash TEXT PRIMARY KEY,
     provider    TEXT NOT NULL,
@@ -131,6 +147,7 @@ class RunRow:
     finished_at: str | None
     status: str
     request_count: int
+    llm_calls: int = 0
 
 
 def _now() -> str:
@@ -198,6 +215,7 @@ class Store:
                 finished_at=r["finished_at"],
                 status=r["status"],
                 request_count=r["request_count"],
+                llm_calls=r["llm_calls"],
             )
             for r in rows
         ]
@@ -443,6 +461,52 @@ class Store:
             "SELECT * FROM agent_steps WHERE run_id = ? ORDER BY step_no", (run_id,)
         )
         return [{**dict(r), "args": json.loads(r["args"])} for r in rows]
+
+    # --- lessons and naming plans (Stage 8) ---
+
+    def add_lessons(self, domain: str, run_id: int | None, texts: list[str], source: str) -> int:
+        """Store new lessons; duplicates of existing ones are ignored. Returns how many."""
+        added = 0
+        for text in texts:
+            cur = self.conn.execute(
+                """INSERT OR IGNORE INTO lessons (domain, run_id, text, source, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (domain, run_id, text, source, _now()),
+            )
+            added += cur.rowcount
+        self.conn.commit()
+        return added
+
+    def lessons_for(self, domain: str, limit: int = 8) -> list[str]:
+        """Most recent lessons first."""
+        rows = self.conn.execute(
+            "SELECT text FROM lessons WHERE domain = ? ORDER BY id DESC LIMIT ?", (domain, limit)
+        )
+        return [r["text"] for r in rows]
+
+    def save_naming_plan(self, domain: str, plan_json: str) -> None:
+        self.conn.execute(
+            """INSERT INTO naming_plans (domain, plan, updated_at) VALUES (?, ?, ?)
+               ON CONFLICT (domain) DO UPDATE SET plan = excluded.plan,
+                   updated_at = excluded.updated_at""",
+            (domain, plan_json, _now()),
+        )
+        self.conn.commit()
+
+    def load_naming_plan(self, domain: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT plan FROM naming_plans WHERE domain = ?", (domain,)
+        ).fetchone()
+        return str(row["plan"]) if row else None
+
+    def first_run_llm_calls(self, domain: str) -> int | None:
+        """LLM calls of the most recent full exploration (not a refresh), for comparison."""
+        row = self.conn.execute(
+            """SELECT llm_calls FROM runs WHERE domain = ? AND goal NOT LIKE 'refresh:%'
+               ORDER BY id DESC LIMIT 1""",
+            (domain,),
+        ).fetchone()
+        return int(row["llm_calls"]) if row else None
 
     # --- LLM cache ---
 

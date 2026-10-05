@@ -104,6 +104,7 @@ class Explorer:
         raw_requests: Callable[[], list[RawRequest | None]] | None = None,
         add_sample: Callable[[CapturedRequest, RawRequest], object] | None = None,
         ask_user: Callable[[str], str] | None = None,
+        memory: str = "",
     ) -> None:
         self.browser = browser
         self.llm = llm
@@ -120,6 +121,7 @@ class Explorer:
         self.raw_requests = raw_requests
         self.add_sample = add_sample
         self.ask_user = ask_user
+        self.memory = memory  # notes from earlier runs on this site (Stage 8)
         self.steps: list[StepRecord] = []
         self.history: list[HistoryItem] = []
 
@@ -178,6 +180,7 @@ class Explorer:
             self._endpoints(),
             self.host,
             self.history,
+            self.memory,
         )
         reply = self.llm.ask(
             [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],

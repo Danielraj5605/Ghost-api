@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
 
-> **Status:** In development. Stages 0–7 are done: `ghost-api run` opens a site in a real browser, an AI agent explores it toward your goal (clicking, typing, scrolling, calling endpoints directly), every API call is captured, redacted and turned into an endpoint map, each endpoint is tested with direct calls to confirm pagination, required headers and auth, a typed Python client (with models and tests) is generated into `output/<domain>/`, and its tests are run against the live API, with failures diagnosed and repaired automatically. `ghost-api doctor` checks your LLM keys. Memory across runs and OpenAPI export come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
+> **Status:** In development. Stages 0–8 are done: `ghost-api run` opens a site in a real browser, an AI agent explores it toward your goal (clicking, typing, scrolling, calling endpoints directly), every API call is captured, redacted and turned into an endpoint map, each endpoint is tested with direct calls to confirm pagination, required headers and auth, a typed Python client (with models and tests) is generated into `output/<domain>/`, and its tests are run against the live API, with failures diagnosed and repaired automatically. Ghost API remembers each site, so `ghost-api refresh` re-checks it with as little work as possible (often no browser and no LLM). `ghost-api doctor` checks your LLM keys. The report and OpenAPI export come in Stage 9, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
 
 ---
 
@@ -315,8 +315,9 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --headed
 # Tighter budget
 ghost-api run https://example.com --goal "search products" --max-llm-calls 30 --max-steps 25
 
-# Re-run against a known site (uses memory)
+# Re-check a known site from memory: replay first, browse only if needed
 ghost-api refresh quotes.toscrape.com
+ghost-api refresh quotes.toscrape.com --no-llm   # never call the LLM
 
 # Show what's stored for a site
 ghost-api inspect quotes.toscrape.com
@@ -470,7 +471,7 @@ Check a site's terms of service before generating a client for it. For demos and
 | 5 | Hypothesis testing | Done |
 | 6 | Code generation | Done |
 | 7 | Verification and replanning | Done |
-| 8 | Memory | Planned |
+| 8 | Memory | Done |
 | 9 | Reporting and OpenAPI export | Planned |
 | 10 | Evaluation and polish | Planned |
 

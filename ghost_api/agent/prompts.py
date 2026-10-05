@@ -116,10 +116,12 @@ def step_prompt(
     endpoints: Sequence[Endpoint],
     target_host: str,
     history: Sequence[HistoryItem],
+    memory: str = "",
 ) -> str:
+    memory_block = f"\nMEMORY:\n{memory}\n" if memory else ""
     return f"""\
 GOAL: {goal}
-
+{memory_block}
 STEP {step} of at most {max_steps}
 
 ENDPOINTS FOUND SO FAR ({len(endpoints)}):

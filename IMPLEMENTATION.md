@@ -708,11 +708,14 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** a second run on a known site is faster and smarter.
 
 **Tasks**
-- [ ] Save the endpoint map, schemas, auth and pagination notes per domain at the end of a run
-- [ ] `lessons` table: the LLM writes 1–3 short lessons at the end of each run, which are added to later prompts for that domain
-- [ ] `ghost-api refresh <domain>`: load memory, re-verify known endpoints, explore only when something fails
-- [ ] `ghost-api inspect <domain>`: print stored endpoints, statuses and lessons
-- [ ] Resume an interrupted run from saved state
+- [x] Save the endpoint map, schemas, auth and pagination notes per domain at the end of a run
+- [x] `lessons` table: "auto" lessons written by code (which action revealed which endpoint) plus 1-3 "llm" lessons from one LLM call per run (only when the agent took 2+ steps); capped, single-line, redacted, de-duplicated, and labelled "may be outdated" in prompts
+- [x] Memory (known endpoints + lessons) is added to the agent's prompt on later runs of the same site
+- [x] The naming plan is stored and reused while it covers every endpoint (no LLM call to regenerate)
+- [x] `ghost-api refresh <domain>`: (1) replay stored samples that need no secrets, with no browser or LLM; (2) one plain page visit for endpoints that need fresh keys or cookies, still no LLM; (3) the agent, with memory, only for what is still missing; then probe, regenerate and verify. `--no-llm` never calls the LLM.
+- [x] `ghost-api inspect <domain>`: runs (with LLM calls), latest endpoints with statuses, and lessons
+- [x] Resume an interrupted run: its traffic and endpoints are saved, so `refresh` continues from them
+- [x] `run` and `refresh` share one pipeline (session, probe, generate, verify, learn)
 
 **Deliverable:** working `refresh` and `inspect` commands.
 
