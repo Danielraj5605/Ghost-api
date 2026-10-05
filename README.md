@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
 
-> **Status:** In development. Stages 0–5 are done: `ghost-api run` opens a site in a real browser, an AI agent explores it toward your goal (clicking, typing, scrolling, calling endpoints directly), every API call is captured, redacted and turned into an endpoint map, and each endpoint is then tested with direct calls to confirm pagination, required headers and auth. `ghost-api doctor` checks your LLM keys. Code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
+> **Status:** In development. Stages 0–6 are done: `ghost-api run` opens a site in a real browser, an AI agent explores it toward your goal (clicking, typing, scrolling, calling endpoints directly), every API call is captured, redacted and turned into an endpoint map, each endpoint is tested with direct calls to confirm pagination, required headers and auth, and a typed Python client (with models and tests) is generated into `output/<domain>/`. `ghost-api doctor` checks your LLM keys. Running the generated tests automatically, memory and OpenAPI export come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
 
 ---
 
@@ -321,6 +321,9 @@ ghost-api refresh quotes.toscrape.com
 # Show what's stored for a site
 ghost-api inspect quotes.toscrape.com
 
+# Regenerate the client from stored data (no browser; --no-llm skips the naming call)
+ghost-api generate quotes.toscrape.com
+
 # Check that your LLM keys work
 ghost-api doctor
 
@@ -341,6 +344,8 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 | `--no-agent` | off | Don't use the LLM; just load and scroll the page |
 | `--no-probe` | off | Don't test endpoints with direct calls |
 | `--max-probes` | 60 | Maximum direct calls for testing endpoints |
+| `--no-generate` | off | Don't generate a Python client |
+| `--out` | `output` | Folder for generated clients |
 
 ---
 
@@ -459,7 +464,7 @@ Check a site's terms of service before generating a client for it. For demos and
 | 3 | LLM gateway (fallback + cache) | Done |
 | 4 | Agent exploration loop | Done |
 | 5 | Hypothesis testing | Done |
-| 6 | Code generation | Planned |
+| 6 | Code generation | Done |
 | 7 | Verification and replanning | Planned |
 | 8 | Memory | Planned |
 | 9 | Reporting and OpenAPI export | Planned |

@@ -1,4 +1,4 @@
-"""Command-line entry point: `ghost-api run | doctor | inspect | refresh`."""
+"""Command-line entry point: `ghost-api run | generate | doctor | inspect | refresh`."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import Settings, default_db_path, load_env
+from ghost_api.generator import GenerationResult, NothingToGenerate, generate_client
+from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.store import Store
@@ -96,6 +98,10 @@ def run(
     max_probes: Annotated[
         int, typer.Option(help="Maximum direct API calls for testing endpoints.")
     ] = 60,
+    no_generate: Annotated[
+        bool, typer.Option("--no-generate", help="Don't generate a Python client.")
+    ] = False,
+    out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
 ) -> None:
     """Explore a website with the AI agent and map its hidden API."""
     try:
@@ -209,9 +215,6 @@ def run(
             reason = str(exc)
         finally:
             store.finish_run(run_id, status)
-            if gateway is not None:
-                store.record_usage(run_id, gateway.usage.calls, gateway.usage.tokens)
-                gateway.close()
 
         # Workflow stage 4 (hypothesize & test): call each endpoint directly.
         reports: dict[str, ProbeReport] = {}
@@ -227,10 +230,26 @@ def run(
             if report is not None:
                 _apply(ep, report)
                 store.save_probe_report(host, run_id, ep, report)
+        # Workflow stage 5: generate the client.
+        generated: GenerationResult | None = None
+        generation_error = ""
+        if not no_generate and endpoints and status not in ("interrupted", "bot-protection"):
+            try:
+                generated = generate_client(store, host, out, llm=gateway)
+            except (NothingToGenerate, GenerationError) as exc:
+                generation_error = str(exc)
+
         console.print()
         console.print(f"[bold]Finished:[/] {status} ({reason})")
         _print_summary(recorder, endpoints, host, time.monotonic() - started, run_id)
+        if generated is not None:
+            _print_generated(generated)
+        elif generation_error:
+            console.print(f"[yellow]No client generated:[/] {generation_error}")
         if gateway is not None:
+            store.record_usage(run_id, gateway.usage.calls, gateway.usage.tokens)
+            gateway.close()
+
             u = gateway.usage
             providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"
             console.print(
@@ -346,6 +365,55 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
 class _Ping(BaseModel):
     status: str
     sum: int
+
+
+@app.command()
+def generate(
+    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
+    no_llm: Annotated[
+        bool, typer.Option("--no-llm", help="Use names derived from URLs (no LLM call).")
+    ] = False,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """(Re)generate the Python client for a site from its stored endpoint map."""
+    path = db or default_db_path()
+    if not path.exists():
+        console.print(f"No database at {path}. Run `ghost-api run` first.")
+        raise typer.Exit(code=1)
+    gateway = None if no_llm else LLMGateway(default_providers(), max_calls=3)
+    if gateway is not None and not gateway.providers:
+        gateway = None
+    try:
+        with Store(path) as store:
+            if gateway is not None:
+                gateway.store = store
+            result = generate_client(store, domain, out, llm=gateway)
+    except (NothingToGenerate, GenerationError) as exc:
+        console.print(f"[red]No client generated:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+    finally:
+        if gateway is not None:
+            gateway.close()
+    _print_generated(result)
+
+
+def _print_generated(result: GenerationResult) -> None:
+    spec, client = result.spec, result.client
+    how = "names chosen by the LLM" if result.named_by_llm else "names derived from URLs"
+    console.print(f"\n[bold green]Generated[/] {spec.class_name} ({how}) in {client.directory}")
+    for m in spec.methods:
+        args = ", ".join(p.name for p in m.required)
+        extra = f"  + iter_{m.name}()" if m.page_param else ""
+        console.print(f"   {m.name}({args}) -> {m.response_type}{extra}")
+    for c in spec.credentials:
+        console.print(f"   [yellow]needs[/] {c.arg} (set {c.env} or pass it to the client)")
+    for skipped in spec.skipped:
+        console.print(f"   [dim]skipped {skipped}[/]")
+    console.print(
+        f"[dim]Files: {client.client_path.name}, {client.models_path.name}, "
+        f"{client.tests_path.name}[/]"
+    )
 
 
 @app.command()

@@ -1,6 +1,6 @@
 import pytest
 
-from ghost_api.analysis.url_grouping import _singular, group_urls, infer_type, looks_like_id
+from ghost_api.analysis.url_grouping import group_urls, infer_type, looks_like_id, singular
 
 
 def templates(*urls: str, method: str = "GET") -> list[str]:
@@ -125,9 +125,9 @@ def test_infer_type(values: list[str], expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("word", "singular"),
+    ("word", "expected"),
     [("books", "book"), ("categories", "category"), ("indexes", "index"),
      ("matches", "match"), ("addresses", "address"), ("news", "news"), ("status", "status")],
 )  # fmt: skip
-def test_singular(word: str, singular: str) -> None:
-    assert _singular(word) == singular
+def test_singular(word: str, expected: str) -> None:
+    assert singular(word) == expected

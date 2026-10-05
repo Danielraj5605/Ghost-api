@@ -73,7 +73,7 @@ def infer_type(values: list[str]) -> ParamType:
 _INVARIANT = {"news", "series", "species", "data", "media", "settings", "metrics"}
 
 
-def _singular(word: str) -> str:
+def singular(word: str) -> str:
     word = re.sub(r"[^a-zA-Z0-9]+", "_", word).strip("_").lower()
     if word.endswith("ies") and len(word) > 4:
         return word[:-3] + "y"
@@ -191,9 +191,9 @@ def _param_names(skeleton: list[str | None], samples: list[list[str]]) -> list[s
             if all(looks_like_id(v) for v in values):
                 name = "id"
             else:  # /author/{author}, /indexes/{index}
-                name = _singular(prev) if prev else "slug"
+                name = singular(prev) if prev else "slug"
         elif prev:
-            name = f"{_singular(prev)}_id"
+            name = f"{singular(prev)}_id"
         else:
             name = f"param{idx + 1}"
         base, k = name, 2

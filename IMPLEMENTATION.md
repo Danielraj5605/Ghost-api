@@ -662,13 +662,16 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** turn the endpoint map into a clean, typed Python client.
 
 **Tasks**
-- [ ] Naming pass: one LLM call returns method names, model names, field descriptions and docstrings for all endpoints
-- [ ] JSON schema to pydantic model converter (nested objects, lists, optional fields, enums kept as `str`)
-- [ ] Jinja2 templates: `client.py.j2`, `models.py.j2`, `test_client.py.j2`
-- [ ] Generated client: httpx session, base URL, rate limit, retry with backoff, typed methods, error class
-- [ ] Generated tests: call each endpoint with captured example parameters and validate against the model
-- [ ] Format the output with `ruff format` and check it compiles
-- [ ] Secret scan on the generated files
+- [x] Naming pass: one optional LLM call returns the client class, method names, response model names and summaries; every name is validated, and deterministic names (from the URL) are used when the LLM is unavailable or returns something unusable
+- [x] JSON schema to pydantic model converter: nested objects become classes named after their field, identical structures share a class, missing or null fields are optional, invalid Python names get an alias, extra fields are allowed
+- [x] Jinja2 templates: `client.py.j2`, `models.py.j2`, `test_client.py.j2`
+- [x] Generated client: httpx session, base URL, rate limit, retries with backoff (honours Retry-After), typed methods, error class, credentials from constructor or environment variables, `iter_...()` helper for confirmed pagination
+- [x] Argument rules: path parameters and user input (search terms, IDs) are required; settings default to a value seen working; secrets become credentials; list/dict defaults are filled in at call time
+- [x] Only read-only, replayable endpoints become methods; the rest are listed as skipped
+- [x] Generated tests: call each method with captured example values; skip when credentials are missing
+- [x] Format the output with `ruff format` when available, and check every file compiles
+- [x] Secret scan on the generated files (no secret-looking values, no `[REDACTED]` placeholders)
+- [x] `ghost-api generate <domain>` command (with `--no-llm`); `run` generates automatically (`--no-generate`, `--out`)
 
 **Deliverable:** `output/<domain>/` contains the client, models and tests.
 

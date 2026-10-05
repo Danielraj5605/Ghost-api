@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -236,6 +237,21 @@ class Store:
 
     def requests_for_run(self, run_id: int) -> list[CapturedRequest]:
         rows = self.conn.execute("SELECT * FROM requests WHERE run_id = ? ORDER BY id", (run_id,))
+        return self._requests(rows)
+
+    def requests_for_domain(self, domain: str) -> list[CapturedRequest]:
+        rows = self.conn.execute(
+            """SELECT q.* FROM requests q JOIN runs r ON r.id = q.run_id
+               WHERE r.domain = ? ORDER BY q.id""",
+            (domain,),
+        )
+        return self._requests(rows)
+
+    def latest_run(self, domain: str) -> RunRow | None:
+        runs = self.list_runs(domain)
+        return runs[0] if runs else None
+
+    def _requests(self, rows: Iterable[sqlite3.Row]) -> list[CapturedRequest]:
         return [
             CapturedRequest(
                 method=r["method"],
@@ -306,11 +322,21 @@ class Store:
                 )
         self.conn.commit()
 
-    def load_endpoints(self, domain: str) -> list[Endpoint]:
-        rows = self.conn.execute(
-            "SELECT * FROM endpoints WHERE domain = ? ORDER BY host, url_template, method",
-            (domain,),
-        ).fetchall()
+    def latest_endpoint_run(self, domain: str) -> int | None:
+        """The most recent run that saved endpoints for this domain."""
+        row = self.conn.execute(
+            "SELECT MAX(last_run_id) AS run_id FROM endpoints WHERE domain = ?", (domain,)
+        ).fetchone()
+        return int(row["run_id"]) if row and row["run_id"] is not None else None
+
+    def load_endpoints(self, domain: str, run_id: int | None = None) -> list[Endpoint]:
+        """All endpoints ever seen for a domain, or only those seen in `run_id`."""
+        sql = "SELECT * FROM endpoints WHERE domain = ?"
+        args: tuple[object, ...] = (domain,)
+        if run_id is not None:
+            sql += " AND last_run_id = ?"
+            args = (domain, run_id)
+        rows = self.conn.execute(sql + " ORDER BY host, url_template, method", args).fetchall()
         out: list[Endpoint] = []
         for r in rows:
             schemas = {
