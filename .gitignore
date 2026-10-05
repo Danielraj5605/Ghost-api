@@ -14,3 +14,7 @@ __pycache__/
 output/
 *.db
 *.db-journal
+
+# Build artifacts
+build/
+dist/
