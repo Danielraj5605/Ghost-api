@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS schemas (
     PRIMARY KEY (endpoint_id, kind)
 );
 
+CREATE TABLE IF NOT EXISTS llm_cache (
+    prompt_hash TEXT PRIMARY KEY,
+    provider    TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    response    TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_run ON requests(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_domain ON runs(domain);
 """
@@ -145,6 +153,12 @@ class Store:
             )
             for r in rows
         ]
+
+    def record_usage(self, run_id: int, llm_calls: int, tokens: int) -> None:
+        self.conn.execute(
+            "UPDATE runs SET llm_calls = ?, tokens = ? WHERE id = ?", (llm_calls, tokens, run_id)
+        )
+        self.conn.commit()
 
     # --- requests ---
 
@@ -272,3 +286,19 @@ class Store:
                 )
             )
         return out
+
+    # --- LLM cache ---
+
+    def cache_get(self, prompt_hash: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT response FROM llm_cache WHERE prompt_hash = ?", (prompt_hash,)
+        ).fetchone()
+        return str(row["response"]) if row else None
+
+    def cache_put(self, prompt_hash: str, provider: str, model: str, response: str) -> None:
+        self.conn.execute(
+            """INSERT OR REPLACE INTO llm_cache (prompt_hash, provider, model, response, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (prompt_hash, provider, model, response, _now()),
+        )
+        self.conn.commit()

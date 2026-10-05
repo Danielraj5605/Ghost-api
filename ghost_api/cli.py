@@ -8,6 +8,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 import typer
+from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
 
@@ -19,6 +20,8 @@ from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import Settings, default_db_path, load_env
+from ghost_api.llm.gateway import LLMError, LLMGateway
+from ghost_api.llm.providers import default_providers
 from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter, check_robots
 
@@ -195,6 +198,46 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
             top_level_fields(ep.response_schema),
         )
     return table
+
+
+class _Ping(BaseModel):
+    status: str
+    sum: int
+
+
+@app.command()
+def doctor() -> None:
+    """Check that each LLM provider in .env answers (uses one tiny call per provider)."""
+    table = Table(title="LLM providers")
+    for col in ("Provider", "Model", "Key", "Result", "Time"):
+        table.add_column(col)
+    working = 0
+    for provider in default_providers():
+        if not provider.api_key:
+            table.add_row(provider.name, provider.model, "[dim]missing[/]", "skipped", "-")
+            continue
+        gateway = LLMGateway([provider])
+        started = time.monotonic()
+        try:
+            reply = gateway.ask(
+                [{"role": "user", "content": 'What is 2 + 3? Set "status" to "ok".'}],
+                response_model=_Ping,
+            )
+            good = reply.parsed is not None and reply.parsed.sum == 5
+            result = "[green]OK[/]" if good else f"[yellow]odd answer:[/] {reply.text[:60]}"
+            working += good
+        except LLMError as exc:
+            result = f"[red]failed:[/] {str(exc)[:90]}"
+        finally:
+            gateway.close()
+        table.add_row(
+            provider.name, provider.model, "set", result, f"{time.monotonic() - started:.1f}s"
+        )
+    console.print(table)
+    if not working:
+        console.print("[red]No provider is working.[/] Check the keys in .env.")
+        raise typer.Exit(code=1)
+    console.print(f"{working} provider(s) working. Fallback order: GHOST_API_PROVIDERS in .env.")
 
 
 @app.command()

@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
 
-> **Status:** In development. Stages 0–2 are done: `ghost-api run` opens a site in a real browser, captures its filtered, redacted API traffic, and turns it into an endpoint map (URL templates, parameters and JSON schemas) stored in SQLite. The AI agent, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
+> **Status:** In development. Stages 0–3 are done: `ghost-api run` opens a site in a real browser, captures its filtered, redacted API traffic, and turns it into an endpoint map (URL templates, parameters and JSON schemas) stored in SQLite. An LLM gateway with provider fallback, JSON validation and caching is ready (`ghost-api doctor` checks your keys). The AI agent, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
 
 ---
 
@@ -257,7 +257,7 @@ Ghost API improves with use:
 |---|---|
 | Language | Python 3.11+ |
 | Browser automation | Playwright (Chromium) |
-| LLM access | LiteLLM, with Gemini (free tier) as the main model and Groq / OpenRouter as fallbacks |
+| LLM access | Small built-in gateway over the OpenAI-compatible APIs of Gemini (main), Groq and OpenRouter (fallbacks) |
 | HTTP | httpx |
 | Data models | pydantic |
 | Schema inference | genson |
@@ -388,7 +388,7 @@ ghost-api/
 |   |   |-- openapi_gen.py
 |   |   +-- templates/      # Jinja2 templates
 |   |-- llm/
-|   |   +-- gateway.py      # LiteLLM + fallback + cache
+|   |   +-- gateway.py      # Fallback, retries, JSON validation, cache
 |   +-- memory/
 |       +-- store.py        # SQLite access
 |-- tests/                  # Unit tests for non-LLM logic
@@ -407,7 +407,7 @@ Ghost API is designed to cost **$0**:
 
 - **Small prompts.** Pages and traffic are compressed into short summaries (under 8k tokens per call).
 - **Few calls.** About 20–50 LLM calls per site, because code does the heavy work.
-- **Fallback chain.** When one provider hits its rate limit, LiteLLM switches to the next (Gemini, then Groq, then OpenRouter).
+- **Fallback chain.** When one provider is rate-limited or down, the gateway switches to the next (Gemini, then Groq, then OpenRouter). Run `ghost-api doctor` to check which providers work.
 - **Caching.** Repeated prompts are served from a local SQLite cache.
 
 > Free-tier limits change often, so check each provider's current pricing page. Free tiers may use prompts for training. Ghost API redacts cookies and tokens before anything reaches an LLM, but don't point it at private data.
@@ -447,7 +447,7 @@ Check a site's terms of service before generating a client for it. For demos and
 | 0 | Project setup | Done |
 | 1 | Traffic capture | Done |
 | 2 | API analysis (URL grouping, schemas) | Done |
-| 3 | LLM gateway (fallback + cache) | Planned |
+| 3 | LLM gateway (fallback + cache) | Done |
 | 4 | Agent exploration loop | Planned |
 | 5 | Hypothesis testing | Planned |
 | 6 | Code generation | Planned |

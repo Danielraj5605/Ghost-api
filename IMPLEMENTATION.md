@@ -195,7 +195,7 @@ The agent loop stops when **any** of these is true:
 | Library | Purpose |
 |---|---|
 | `playwright` | Drive the browser and capture traffic |
-| `litellm` | One interface to Gemini, Groq and OpenRouter, with fallback |
+| `httpx` (again) | The LLM gateway calls each provider's OpenAI-compatible API directly; no LiteLLM (fewer dependencies holding API keys) |
 | `httpx` | Direct API calls during testing, and in the generated client |
 | `pydantic` | Data models, both inside the tool and in the generated code |
 | `genson` | Build JSON schemas from sample responses |
@@ -434,7 +434,7 @@ Priority: **M** = must have (MVP), **S** = should have, **C** = could have (late
 +-------+ +--------+ +----------+ +----------+ +----------+
 |BROWSER| |CAPTURE | | ANALYZER | |GENERATOR | |   LLM    |
 |Playw- | |network | |URL group | |templates | | GATEWAY  |
-|right  | |filter  | |schema    | |client +  | |LiteLLM + |
+|right  | |filter  | |schema    | |client +  | |httpx +   |
 |actions| |redact  | |inference | |tests +   | |fallback +|
 |       | |        | |          | |OpenAPI   | |cache     |
 +---+---+ +---+----+ +----+-----+ +----+-----+ +----+-----+
@@ -588,13 +588,15 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** one reliable, free way to call an LLM.
 
 **Tasks**
-- [ ] `llm/gateway.py`: `ask(messages, schema=None)` built on LiteLLM
-- [ ] Provider chain from config: Gemini, then Groq, then OpenRouter
-- [ ] On 429 or 5xx: retry with backoff, then move to the next provider
-- [ ] Structured output: parse JSON, validate with pydantic, re-ask up to 2 times on invalid output
-- [ ] `llm_cache` table keyed by a hash of model and prompt
-- [ ] Count calls and tokens for the budget and the final report
-- [ ] Redaction check before sending (a final safety net)
+- [x] `llm/gateway.py`: `ask(messages, response_model=None)` over each provider's OpenAI-compatible API (httpx; LiteLLM was dropped to avoid an extra dependency that holds every API key)
+- [x] Provider chain from config: Gemini, then Groq, then OpenRouter
+- [x] On 429 or 5xx: retry with backoff, then move to the next provider
+- [x] Structured output: parse JSON, validate with pydantic, re-ask up to 2 times on invalid output
+- [x] `llm_cache` table keyed by a hash of model and prompt
+- [x] Count calls and tokens for the budget and the final report
+- [x] Redaction check before sending (a final safety net)
+
+- [x] `ghost-api doctor`: checks every provider with one tiny call (added)
 
 **Deliverable:** `llm.ask()` returns validated JSON and survives one provider being down.
 
