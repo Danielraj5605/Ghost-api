@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 from pathlib import Path
@@ -22,7 +23,13 @@ from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import Settings, default_db_path, load_env
-from ghost_api.generator import GenerationResult, NothingToGenerate, generate_client
+from ghost_api.generator import (
+    GenerationResult,
+    NothingToGenerate,
+    generate_client,
+    generate_from,
+    name_endpoints,
+)
 from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.llm.providers import default_providers
@@ -30,6 +37,7 @@ from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
 from ghost_api.probe.prober import Prober, ProbeReport
 from ghost_api.probe.replay import Replayer
+from ghost_api.verify.verifier import Round, Verifier, VerifyReport
 
 app = typer.Typer(
     help="Ghost API: turn any website into a typed, tested API client.",
@@ -40,6 +48,8 @@ console = Console()
 
 # With --no-agent, `run` just scrolls to the bottom this many times.
 AUTO_SCROLLS = 5
+# Agent steps allowed when verification sends the agent back to the site.
+REPLAN_STEPS = 6
 
 
 def _version(value: bool) -> None:
@@ -100,6 +110,9 @@ def run(
     ] = 60,
     no_generate: Annotated[
         bool, typer.Option("--no-generate", help="Don't generate a Python client.")
+    ] = False,
+    no_verify: Annotated[
+        bool, typer.Option("--no-verify", help="Don't run the generated tests against the API.")
     ] = False,
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
 ) -> None:
@@ -220,7 +233,6 @@ def run(
         reports: dict[str, ProbeReport] = {}
         if not no_probe and status not in ("interrupted", "bot-protection", "failed"):
             reports = _probe_all(recorder, replayer)
-        replayer.close()
 
         # The final endpoint map, including samples gathered while probing.
         endpoints = analyze(recorder.captured)
@@ -230,14 +242,56 @@ def run(
             if report is not None:
                 _apply(ep, report)
                 store.save_probe_report(host, run_id, ep, report)
-        # Workflow stage 5: generate the client.
+
+        # Workflow stages 5-7: generate the client, run its tests, repair, repeat.
         generated: GenerationResult | None = None
+        verification: VerifyReport | None = None
         generation_error = ""
         if not no_generate and endpoints and status not in ("interrupted", "bot-protection"):
+            plan = name_endpoints(gateway, host, endpoints)
+
+            def explore(sub_goal: str) -> None:
+                """Re-enter the agent loop with a focused sub-goal (e.g. a fresh session)."""
+                if gateway is None:
+                    return
+                console.print(f"[bold]Replanning:[/] {sub_goal}")
+                with (
+                    contextlib.suppress(Exception),
+                    BrowserSession(settings.url, recorder, headed=settings.headed) as browser,
+                ):
+                    Explorer(
+                        browser=browser, llm=gateway, captured=lambda: recorder.captured,
+                        goal=sub_goal, start_url=settings.url, target_host=host,
+                        max_steps=REPLAN_STEPS, max_minutes=3, robots=robots, on_step=on_step,
+                        replayer=replayer, raw_requests=lambda: recorder.raw,
+                        add_sample=recorder.add,
+                    ).run()  # fmt: skip
+
             try:
-                generated = generate_client(store, host, out, llm=gateway)
+                if no_verify:
+                    generated = generate_from(
+                        host, settings.url, endpoints, recorder.captured, out, plan
+                    )
+                else:
+                    console.print()
+                    console.print("[bold]Verifying the generated client against the live API...[/]")
+                    verifier = Verifier(
+                        host, settings.url, endpoints, recorder.captured, out,
+                        raw=recorder.raw, plan=plan, replayer=replayer,
+                        explore=explore if gateway is not None else None,
+                        on_round=_print_round, add_sample=recorder.add,
+                    )  # fmt: skip
+                    verification = verifier.run()
+                    generated = verification.result
+                    endpoints = verifier.endpoints
+                    store.save_endpoints(host, run_id, endpoints)  # e.g. relaxed schemas
+                    for ep in endpoints:
+                        state, note = verification.statuses.get(ep.key, ("unverified", ""))
+                        ep.status, ep.status_note = state, note
+                        store.set_endpoint_status(host, ep, state, note)
             except (NothingToGenerate, GenerationError) as exc:
                 generation_error = str(exc)
+        replayer.close()
 
         console.print()
         console.print(f"[bold]Finished:[/] {status} ({reason})")
@@ -297,6 +351,22 @@ def _probe_all(recorder: TrafficRecorder, replayer: Replayer) -> dict[str, Probe
     return reports
 
 
+STATUS_STYLE = {"verified": "green", "unverified": "yellow", "failed": "red"}
+OUTCOME_STYLE = {"passed": "green", "failed": "red", "skipped": "yellow"}
+
+
+def _print_round(round_: Round) -> None:
+    counts = {k: sum(o.outcome == k for o in round_.outcomes) for k in OUTCOME_STYLE}
+    summary = ", ".join(f"[{OUTCOME_STYLE[k]}]{v} {k}[/]" for k, v in counts.items() if v)
+    console.print(f"  [bold]Round {round_.number}:[/] {summary or 'no tests'}")
+    for o in round_.outcomes:
+        if o.outcome == "failed":
+            first = next((ln for ln in o.message.splitlines() if ln.strip()), "")
+            console.print(f"    [red]failed[/] {o.name}  [dim]{first[:110]}[/]")
+    for r in round_.repairs:
+        console.print(f"    [cyan]repair[/] {r.method} ({r.kind}): {r.action}")
+
+
 def _apply(ep: Endpoint, report: ProbeReport) -> None:
     ep.replayable = report.replayable
     ep.auth_type = report.auth_type
@@ -335,6 +405,7 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
     table.add_column("Endpoint")
     table.add_column("Parameters")
     table.add_column("Samples", justify="right")
+    table.add_column("Verified")
     table.add_column("Callable")
     table.add_column("Auth")
     table.add_column("Paging")
@@ -350,10 +421,15 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
         auth = ep.auth_type or "-"
         if ep.required_headers:
             auth += "\n" + "\n".join(f"needs {h}" for h in ep.required_headers)
+        style = STATUS_STYLE.get(ep.status)
+        verified = f"[{style}]{ep.status}[/]" if style else "-"
+        if ep.status_note and style:
+            verified += f"\n[dim]{ep.status_note}[/]"
         table.add_row(
             label,
             "\n".join(params) or "-",
             str(ep.sample_count),
+            verified,
             callable_,
             auth,
             _pagination_label(ep.pagination),
@@ -414,6 +490,50 @@ def _print_generated(result: GenerationResult) -> None:
         f"[dim]Files: {client.client_path.name}, {client.models_path.name}, "
         f"{client.tests_path.name}[/]"
     )
+
+
+@app.command()
+def verify(
+    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Regenerate a site's client, run its tests against the live API, and repair.
+
+    Uses stored data only. Endpoints that need a key are tested when the key is set in
+    the environment (the generated client says which variable).
+    """
+    path = db or default_db_path()
+    if not path.exists():
+        console.print(f"No database at {path}. Run `ghost-api run` first.")
+        raise typer.Exit(code=1)
+    with Store(path) as store:
+        run_id = store.latest_endpoint_run(domain)
+        run_row = store.latest_run(domain)
+        if run_id is None or run_row is None:
+            console.print(f"No endpoints stored for {domain}. Run `ghost-api run` first.")
+            raise typer.Exit(code=1)
+        endpoints = store.load_endpoints(domain, run_id)
+        console.print(f"[bold]Verifying the {domain} client against the live API...[/]")
+        verifier = Verifier(
+            domain, run_row.start_url, endpoints, store.requests_for_domain(domain), out,
+            on_round=_print_round,
+        )  # fmt: skip
+        try:
+            report = verifier.run()
+        except (NothingToGenerate, GenerationError) as exc:
+            console.print(f"[red]No client generated:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+        store.save_endpoints(domain, run_id, verifier.endpoints)
+        for ep in verifier.endpoints:
+            state, note = report.statuses.get(ep.key, ("unverified", ""))
+            ep.status, ep.status_note = state, note
+            store.set_endpoint_status(domain, ep, state, note)
+    console.print(_endpoint_table(verifier.endpoints, domain))
+    if report.result is not None:
+        _print_generated(report.result)
+    if any(state == "failed" for state, _ in report.statuses.values()):
+        raise typer.Exit(code=1)
 
 
 @app.command()

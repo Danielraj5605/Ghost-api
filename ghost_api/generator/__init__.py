@@ -1,10 +1,12 @@
-"""Generate a typed Python client from a domain's stored endpoint map (Stage 6)."""
+"""Generate a typed Python client from an endpoint map (Stage 6)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
+from ghost_api.analysis.models import Endpoint
+from ghost_api.capture.models import CapturedRequest
 from ghost_api.generator.naming import NAMING_SYSTEM, NamingPlan, apply_plan, naming_prompt
 from ghost_api.generator.python_gen import GeneratedClient, write
 from ghost_api.generator.spec import ClientSpec, build_spec
@@ -20,7 +22,46 @@ class NothingToGenerate(Exception):
 class GenerationResult:
     client: GeneratedClient
     spec: ClientSpec
-    named_by_llm: bool
+    plan: NamingPlan | None  # reuse it when regenerating, to save LLM calls
+
+    @property
+    def named_by_llm(self) -> bool:
+        return self.plan is not None
+
+
+def name_endpoints(
+    llm: LLMGateway | None, domain: str, endpoints: list[Endpoint]
+) -> NamingPlan | None:
+    """One LLM call for nicer names. None if there's no LLM or it fails."""
+    if llm is None or not endpoints:
+        return None
+    try:
+        reply = llm.ask(
+            [
+                {"role": "system", "content": NAMING_SYSTEM},
+                {"role": "user", "content": naming_prompt(domain, endpoints)},
+            ],
+            response_model=NamingPlan,
+        )
+    except LLMError:
+        return None  # deterministic names still work
+    return reply.parsed
+
+
+def generate_from(
+    domain: str,
+    start_url: str,
+    endpoints: list[Endpoint],
+    requests: list[CapturedRequest],
+    out_root: Path,
+    plan: NamingPlan | None = None,
+) -> GenerationResult:
+    class_name, names = apply_plan(plan, endpoints, domain)
+    spec = build_spec(domain, start_url, endpoints, requests, class_name, names)
+    if not spec.methods:
+        reasons = "; ".join(spec.skipped) or "no endpoints"
+        raise NothingToGenerate(f"no endpoint can be turned into a method ({reasons})")
+    return GenerationResult(write(spec, out_root / domain), spec, plan)
 
 
 def generate_client(
@@ -33,25 +74,5 @@ def generate_client(
         raise NothingToGenerate(f"no endpoints stored for {domain}; run `ghost-api run` first")
     endpoints = store.load_endpoints(domain, run_id)
     requests = store.requests_for_domain(domain)
-
-    plan: NamingPlan | None = None
-    if llm is not None and endpoints:
-        try:
-            reply = llm.ask(
-                [
-                    {"role": "system", "content": NAMING_SYSTEM},
-                    {"role": "user", "content": naming_prompt(domain, endpoints)},
-                ],
-                response_model=NamingPlan,
-            )
-            plan = reply.parsed
-        except LLMError:
-            plan = None  # deterministic names still work
-
-    class_name, names = apply_plan(plan, endpoints, domain)
-    spec = build_spec(domain, run.start_url, endpoints, requests, class_name, names)
-    if not spec.methods:
-        reasons = "; ".join(spec.skipped) or "no endpoints"
-        raise NothingToGenerate(f"no endpoint can be turned into a method ({reasons})")
-    client = write(spec, out_root / domain)
-    return GenerationResult(client, spec, named_by_llm=plan is not None)
+    plan = name_endpoints(llm, domain, endpoints)
+    return generate_from(domain, run.start_url, endpoints, requests, out_root, plan)

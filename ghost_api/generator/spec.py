@@ -86,6 +86,7 @@ class CredentialSpec:
 @dataclass
 class MethodSpec:
     name: str
+    endpoint_key: str  # Endpoint.key this method calls
     summary: str
     http_method: str
     host: str
@@ -246,6 +247,7 @@ def build_spec(
         spec.methods.append(
             MethodSpec(
                 name=n.method_name,
+                endpoint_key=ep.key,
                 summary=n.summary,
                 http_method=ep.method,
                 host="" if ep.host == main_host else ep.host,

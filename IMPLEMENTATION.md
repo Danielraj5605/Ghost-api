@@ -686,12 +686,14 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** prove the client works, and recover when it doesn't.
 
 **Tasks**
-- [ ] Run the generated pytest file in a subprocess and parse the results per endpoint
-- [ ] Error classifier for the failure types in section 2.4
-- [ ] Recovery strategies: add cookies or headers, collect more samples, re-group the URL, back off, mark unstable
-- [ ] Re-enter the agent loop with a focused sub-goal ("collect more samples of `/api/books/{id}`")
-- [ ] Cap at 3 replan rounds, then finish with partial results
-- [ ] Set each endpoint's status to verified, unverified or failed
+- [x] Run the generated pytest file in a subprocess and read per-method results from its JUnit report
+- [x] Error classifier: auth (401/403), not found (404/410), schema mismatch (pydantic errors, with the failing field paths), rate limited, network/server, missing credential, unknown
+- [x] Recovery strategies: schema mismatch -> collect fresh samples by replaying (and the next page), then relax exactly the failing fields; auth -> re-test required headers, then send the agent back to the site for a fresh session; not found -> retry with another captured example; rate limit / network -> back off once
+- [x] Re-enter the agent loop with a focused sub-goal (used for fresh sessions)
+- [x] Cap at 3 rounds; each repair is tried at most once per endpoint; stop early when nothing more can be done
+- [x] Mark each endpoint verified, unverified or failed, with a note; stored in the `endpoints` table and shown in the CLI
+- [x] Credentials for the tests come from the captured originals in memory, passed only to the test process's environment
+- [x] `ghost-api verify <domain>` re-checks a client from stored data; `run` verifies automatically (`--no-verify`)
 
 **Deliverable:** a full run ends with verified endpoints, or an honest partial result.
 

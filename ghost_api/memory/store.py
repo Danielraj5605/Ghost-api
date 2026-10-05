@@ -117,6 +117,7 @@ MIGRATIONS = (
     ("endpoints", "third_party", "INTEGER NOT NULL DEFAULT 0"),
     ("endpoints", "required_headers", "TEXT NOT NULL DEFAULT '[]'"),
     ("endpoints", "replayable", "INTEGER"),
+    ("endpoints", "status_note", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -366,6 +367,8 @@ class Store:
                     auth_type=r["auth_type"],
                     pagination=json.loads(r["pagination"]) if r["pagination"] else None,
                     required_headers=json.loads(r["required_headers"]),
+                    status=r["status"],
+                    status_note=r["status_note"],
                 )
             )
         return out
@@ -397,6 +400,15 @@ class Store:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (run_id, h.endpoint, h.text, h.result, h.evidence, _now()),
             )
+        self.conn.commit()
+
+    def set_endpoint_status(self, domain: str, endpoint: Endpoint, status: str, note: str) -> None:
+        self.conn.execute(
+            """UPDATE endpoints SET status = ?, status_note = ?, updated_at = ?
+               WHERE domain = ? AND method = ? AND host = ? AND url_template = ?""",
+            (status, note, _now(), domain, endpoint.method, endpoint.host,
+             endpoint.path_template),
+        )  # fmt: skip
         self.conn.commit()
 
     def hypotheses_for_run(self, run_id: int) -> list[dict[str, object]]:

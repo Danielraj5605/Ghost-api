@@ -51,6 +51,9 @@ class Endpoint:
     auth_type: str | None = None
     pagination: dict[str, Any] | None = None
     required_headers: list[str] = field(default_factory=list)
+    # Set by verification (Stage 7): discovered | verified | unverified | failed
+    status: str = "discovered"
+    status_note: str = ""
 
     @property
     def key(self) -> str:
