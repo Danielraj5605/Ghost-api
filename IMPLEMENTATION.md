@@ -749,13 +749,13 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** measure the results, fix the worst problems, and publish.
 
 **Tasks**
-- [ ] Build a small local demo app (FastAPI plus a simple frontend) where the true endpoint list is known exactly
-- [ ] `evals/`: a ground-truth endpoint list per evaluation site, and a scoring script
-- [ ] Run all evaluation sites and record the metrics from section 8.2
-- [ ] Fix the top 3 failure causes and re-run
-- [ ] Clear error messages for common problems (no API key, robots.txt block, bot challenge)
-- [ ] Update README.md: real results, demo GIF, status table
-- [ ] Final `ruff`, `mypy` and unit test pass
+- [x] Local demo app with an exactly known API (`evals/demo_shop.py`; built on the standard library instead of FastAPI, so it adds no dependency)
+- [x] `evals/`: ground-truth endpoint list per site (`sites.json`) and a scoring script (`run_eval.py`: recall, precision, pass rate, LLM calls, time, peak memory, forbidden endpoints)
+- [x] Run all evaluation sites and record the metrics (section 8.2)
+- [x] Fix the top failure causes and re-run: retired free models (per-model fallback routing), the gateway not waiting when some providers were dead, and a scoring bug; then overloaded models now hand over at once instead of being retried
+- [x] Clear error messages for common problems (`ghost_api/errors.py`: missing Chromium, unknown address, refused connection, unsafe port, no internet, timeouts, certificates, locked database; no API key, robots.txt and bot challenges were already clear)
+- [x] Update README.md: real results, real example output, status table (no GIF)
+- [x] Final `ruff`, `mypy --strict` and test pass
 
 **Deliverable:** a public GitHub repo with real numbers.
 
@@ -783,34 +783,37 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 
 | Site | Why |
 |---|---|
+| Local demo shop (`evals/demo_shop.py`) | Exact ground truth: 5 endpoints, page and cursor pagination, plus traps (a data-changing POST, log out, analytics, health check) |
+| `quotes.toscrape.com/scroll` | Built for practice; infinite-scroll JSON API |
+| `hn.algolia.com` (Hacker News search) | Real site whose API is a third-party POST API with a key |
 | `books.toscrape.com` | Negative test: server-rendered, so Ghost API must report "no API found" rather than invent one |
-| `quotes.toscrape.com` (scroll and other variants) | Built for practice; has a JSON API variant |
-| Hacker News | Public API to compare against |
-| Open Library | Public data with a known API |
-| Local demo app | Exact ground truth |
+
+Open Library, in the original plan, was not evaluated; the demo shop gives exact ground truth instead.
 
 ### 8.2 Metrics
 
-| Metric | How it's measured | Target |
-|---|---|---|
-| Endpoint recall | Found / actual (checked by hand in DevTools or from ground truth) | 80% or higher |
-| Endpoint precision | Real / reported | 100% |
-| Test pass rate | Passing / generated tests | 85% or higher |
-| LLM calls per site | Counted by the gateway | 50 or fewer |
-| Refresh savings | Refresh calls / first-run calls | 50% or lower |
-| Time per site | Measured | 10 minutes or less |
-| Peak memory | Measured | 1.5 GB or less |
-| Cost | Measured | $0 |
+Measured on 2026-10-05 (details: `evals/results/results.md`).
+
+| Metric | How it's measured | Target | Measured |
+|---|---|---|---|
+| Endpoint recall | Found / actual (ground truth in `evals/sites.json`) | 80% or higher | 100% on all three sites with an API |
+| Endpoint precision | Real / reported | 100% | 100% on all four sites |
+| Test pass rate | Verified / tested endpoints | 85% or higher | 100% (7 of 7 endpoints) |
+| LLM calls per site | Counted by the gateway | 50 or fewer | 1-10 |
+| Refresh savings | Refresh calls / first-run calls | 50% or lower | 0% (0 calls: live on quotes, and 0 vs 4 in the end-to-end test) |
+| Time per site | Measured | 10 minutes or less | 9-259 s |
+| Peak memory | Process tree incl. Chromium | 1.5 GB or less | 415-473 MB |
+| Cost | Free tiers only | $0 | $0 |
 
 ### 8.3 MVP acceptance checklist
 
-- [ ] One command produces a working client for at least 3 evaluation sites
-- [ ] Generated tests pass at or above target
-- [ ] No invented endpoints on any site
-- [ ] No secrets in the database, reports, prompts or generated code
-- [ ] The report shows the reasoning log
-- [ ] Runs on an 8 GB laptop with only free API keys
-- [ ] README has setup steps, real results and a demo GIF
+- [x] One command produces a working client for at least 3 evaluation sites (demo shop, quotes, hn.algolia)
+- [x] Generated tests pass at or above target (100%)
+- [x] No invented endpoints on any site (precision 100%)
+- [x] No secrets in the database, reports, prompts or generated code (covered by tests at each layer)
+- [x] The report shows the reasoning log
+- [x] Runs on an 8 GB laptop with only free API keys
+- [ ] README has setup steps, real results and a demo GIF: setup steps and real results are in; a GIF was not recorded (the README shows real terminal output instead)
 
 ---
 

@@ -40,7 +40,8 @@ MAX_REPAIRS = 2  # re-asks after an invalid JSON reply
 BACKOFF_BASE_S = 2.0
 MAX_BACKOFF_S = 20.0
 TIMEOUT_S = 90.0
-DEFAULT_COOLDOWN_S = 60.0  # skip a rate-limited provider this long
+DEFAULT_COOLDOWN_S = 60.0  # skip a rate-limited model this long
+OVERLOAD_COOLDOWN_S = 30.0  # skip an overloaded (5xx) or unreachable model this long
 MAX_COOLDOWN_WAIT_S = 65.0  # when all are rate-limited, wait at most this long
 
 
@@ -166,6 +167,14 @@ class LLMGateway:
             self._sleep(wait)
             return self._ask_chain(messages, response_model, temperature)
 
+    def _has_alternative(self, route: Provider) -> bool:
+        """Is any other usable route free right now?"""
+        now = self._clock()
+        return any(
+            _key(r) != _key(route) and self._cooldown_until.get(_key(r), 0.0) <= now
+            for r in self._alive()
+        )
+
     def _alive(self) -> list[Provider]:
         return [
             r for r in self._routes if _key(r) not in self._dead and r.name not in self._disabled
@@ -200,10 +209,10 @@ class LLMGateway:
             except BudgetExceeded:
                 raise
             except (_Retryable, _Fatal, _InvalidReply) as exc:
-                if isinstance(exc, _Retryable) and exc.quota:
-                    # Limits are per model: this model rests, the next one is tried.
-                    cooldown = exc.retry_after or DEFAULT_COOLDOWN_S
-                    self._cooldown_until[key] = self._clock() + cooldown
+                if isinstance(exc, _Retryable):
+                    # Rate-limited or overloaded: this model rests, the next one is tried.
+                    default = DEFAULT_COOLDOWN_S if exc.quota else OVERLOAD_COOLDOWN_S
+                    self._cooldown_until[key] = self._clock() + (exc.retry_after or default)
                 elif isinstance(exc, _Fatal) and exc.status in (401, 403):
                     self._disabled.add(route.name)  # bad key: no model of it will work
                 elif isinstance(exc, _Fatal) and exc.status == 404:
@@ -259,7 +268,8 @@ class LLMGateway:
             try:
                 return self._complete(provider, messages, response_model, temperature)
             except _Retryable as exc:
-                if attempt == MAX_RETRIES or exc.quota:
+                # With another model or provider available, moving on beats waiting here.
+                if attempt == MAX_RETRIES or exc.quota or self._has_alternative(provider):
                     raise
                 self.usage.retries += 1
                 self.usage.problems[f"{provider.name}: {str(exc)[:70]}"] += 1

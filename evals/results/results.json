@@ -1,0 +1,80 @@
+[
+  {
+    "site": "demo-shop",
+    "status": "goal-covered",
+    "found": [
+      "GET /api/categories",
+      "GET /api/products",
+      "GET /api/products/{}",
+      "GET /api/products/{}/reviews",
+      "GET /api/search"
+    ],
+    "recall": 1.0,
+    "precision": 1.0,
+    "invented": [],
+    "verified": 5,
+    "unverified": 0,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "llm_calls": 6,
+    "seconds": 35.5,
+    "peak_mb": 414.7,
+    "forbidden_generated": [],
+    "log": ""
+  },
+  {
+    "site": "quotes",
+    "status": "goal-covered",
+    "found": [
+      "GET /api/quotes"
+    ],
+    "recall": 1.0,
+    "precision": 1.0,
+    "invented": [],
+    "verified": 1,
+    "unverified": 0,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "llm_calls": 2,
+    "seconds": 17.9,
+    "peak_mb": 423.0,
+    "forbidden_generated": [],
+    "log": ""
+  },
+  {
+    "site": "hn-algolia",
+    "status": "goal-covered",
+    "found": [
+      "POST uj5wyc0l7x-dsn.algolia.net/1/indexes/{}/query"
+    ],
+    "recall": 1.0,
+    "precision": 1.0,
+    "invented": [],
+    "verified": 1,
+    "unverified": 0,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "llm_calls": 10,
+    "seconds": 259.2,
+    "peak_mb": 473.3,
+    "forbidden_generated": [],
+    "log": ""
+  },
+  {
+    "site": "books-no-api",
+    "status": "finished",
+    "found": [],
+    "recall": null,
+    "precision": 1.0,
+    "invented": [],
+    "verified": 0,
+    "unverified": 0,
+    "failed": 0,
+    "pass_rate": null,
+    "llm_calls": 1,
+    "seconds": 9.4,
+    "peak_mb": 451.8,
+    "forbidden_generated": [],
+    "log": ""
+  }
+]

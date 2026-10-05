@@ -87,18 +87,23 @@ def test_structured_reply_is_validated() -> None:
     assert "JSON schema" in body["messages"][0]["content"]
 
 
-def test_server_errors_are_retried_then_fall_back() -> None:
-    fake = Fake(
-        alpha=[httpx.Response(503), httpx.Response(502), httpx.Response(500)],
-        beta=[ok(GOOD)],
-    )
+def test_overloaded_provider_is_skipped_at_once_when_another_is_available() -> None:
+    fake = Fake(alpha=[httpx.Response(503)], beta=[ok(GOOD), ok(GOOD)])
     gw = gateway(fake)
-    reply = gw.ask(ASK, response_model=Answer)
-    assert reply.provider == "beta"
-    assert fake.hosts() == ["alpha", "alpha", "alpha", "beta"]
-    assert gw.sleeps == [2.0, 4.0]  # type: ignore[attr-defined]
-    # beta has no JSON mode, so no response_format is sent.
+    assert gw.ask(ASK, response_model=Answer).provider == "beta"
+    assert fake.hosts() == ["alpha", "beta"]  # no retries on the overloaded one
+    assert gw.sleeps == []  # type: ignore[attr-defined]
+    # beta has no JSON mode, so no response_format is sent to it.
     assert "response_format" not in json.loads(fake.requests[-1].content)
+    gw.ask([{"role": "user", "content": "next"}], response_model=Answer)
+    assert fake.hosts() == ["alpha", "beta", "beta"]  # alpha rests for a while
+
+
+def test_last_provider_is_retried_with_backoff() -> None:
+    fake = Fake(alpha=[httpx.Response(503), httpx.Response(502), ok(GOOD)])
+    gw = gateway(fake, providers=[A])
+    assert gw.ask(ASK, response_model=Answer).provider == "alpha"
+    assert gw.sleeps == [2.0, 4.0]  # type: ignore[attr-defined]
 
 
 def test_retry_after_header_is_honored_and_capped() -> None:
@@ -109,7 +114,7 @@ def test_retry_after_header_is_honored_and_capped() -> None:
             ok("x"),
         ],
     )
-    gw = gateway(fake)
+    gw = gateway(fake, providers=[A])
     gw.ask(ASK)
     assert gw.sleeps == [7.0, 20.0]  # type: ignore[attr-defined]
 
@@ -264,7 +269,7 @@ def test_unknown_provider_name(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_error_messages_are_reported_for_list_and_dict_bodies() -> None:
     gemini_style = [{"error": {"code": 503, "message": "high demand"}}]
     fake = Fake(
-        alpha=[httpx.Response(503, json=gemini_style)] * 3,
+        alpha=[httpx.Response(503, json=gemini_style, headers={"retry-after": "3600"})],
         beta=[httpx.Response(404, json={"error": {"message": "model not found"}})],
     )
     with pytest.raises(LLMUnavailable) as err:

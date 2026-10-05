@@ -76,8 +76,9 @@ def _summary(run: RunRow, endpoints: list[Endpoint], spec: ClientSpec | None) ->
         lines.append(f"- **Client:** `{spec.class_name}` with {methods}")
     duration = _duration(run.started_at, run.finished_at)
     lines.append(
-        f"- **Usage:** {run.llm_calls} LLM calls, {run.tokens:,} tokens, {run.request_count} "
-        f"captured requests{', ' + duration if duration else ''}, $0.00 (free tiers)"
+        f"- **Usage:** {run.llm_calls} LLM call{_s(run.llm_calls)}, {run.tokens:,} tokens, "
+        f"{run.request_count} captured request{_s(run.request_count)}"
+        f"{', ' + duration if duration else ''}, $0.00 (free tiers)"
     )
     return lines
 
@@ -159,6 +160,10 @@ def _duration(started: str, finished: str | None) -> str:
     except ValueError:
         return ""
     return f"{seconds:.0f}s"
+
+
+def _s(count: int) -> str:
+    return "" if count == 1 else "s"
 
 
 def _md(text: str) -> str:
