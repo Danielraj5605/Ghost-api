@@ -50,6 +50,18 @@ NOISE_DOMAINS = (
     "ads-twitter.com",
 )
 
+# Third-party infrastructure that returns JSON but is never the site's data API:
+# CDNs, captchas, consent banners, payment widgets, video players, push services.
+INFRA_DOMAINS = (
+    "gstatic.com", "fonts.googleapis.com", "recaptcha.net", "hcaptcha.com",
+    "challenges.cloudflare.com",
+    "cloudflareinsights.com", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
+    "stripe.com", "stripe.network", "paypal.com", "braintreegateway.com", "youtube.com",
+    "ytimg.com", "vimeo.com", "onesignal.com", "pusher.com", "cookielaw.org", "onetrust.com",
+    "cookiebot.com", "usercentrics.eu", "trustarc.com", "quantcast.com", "gravatar.com",
+    "wp.com", "zendesk.com", "hubspot.com", "hs-scripts.com", "typekit.net", "fontawesome.com",
+)  # fmt: skip
+
 # Subdomains that carry tracking or monitoring, even on the target's own domain.
 NOISE_SUBDOMAINS = {
     "telemetry", "analytics", "metrics", "stats", "tracking", "track", "log", "logs", "rum",
@@ -76,6 +88,10 @@ _IP_RE = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
 
 # Beacon-style endpoints that sites host on their own domain.
 _FIRST_PARTY_NOISE_RE = re.compile(r"/(collect|beacon|telemetry|pixel|__track|rum)(/|$)", re.I)
+# Health checks and liveness probes (first- or third-party): never a data API.
+_HEALTH_RE = re.compile(
+    r"/(isalive|is_alive|health|healthz|healthcheck|ping|heartbeat|livez|readyz)/?$", re.I
+)
 
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}")
 _BEARER_RE = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
@@ -109,18 +125,33 @@ def is_noise_domain(url: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in NOISE_DOMAINS)
 
 
+def is_infra_domain(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in INFRA_DOMAINS)
+
+
+def is_third_party(url: str, target_host: str) -> bool:
+    return not is_same_site(url, target_host)
+
+
 def is_json_content_type(content_type: str | None) -> bool:
     return bool(content_type) and "json" in content_type.lower()  # type: ignore[union-attr]
 
 
 def classify(resource_type: str, url: str, target_host: str) -> str | None:
-    """Return None if this request should be kept, otherwise the reason it was dropped."""
+    """Return None if this request should be kept, otherwise the reason it was dropped.
+
+    Requests to other domains are kept (as third-party APIs, e.g. a site's search running
+    on Algolia) unless they are analytics or known infrastructure.
+    """
     if resource_type not in API_RESOURCE_TYPES:
         return f"resource:{resource_type}"
     if is_noise_domain(url):
         return "analytics"
-    if not is_same_site(url, target_host):
-        return "off-site"
+    if is_third_party(url, target_host) and is_infra_domain(url):
+        return "infrastructure"
+    if _HEALTH_RE.search(urlsplit(url).path):
+        return "health-check"
     if _FIRST_PARTY_NOISE_RE.search(urlsplit(url).path):
         return "analytics"
     return None

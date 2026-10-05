@@ -51,6 +51,7 @@ def analyze(requests: list[CapturedRequest]) -> list[Endpoint]:
                 response_samples=len(response_samples),
                 statuses=sorted({r.status for r in reqs}),
                 example_urls=_unique([r.url for r in reqs])[:MAX_EXAMPLES],
+                third_party=any(r.third_party for r in reqs),
             )
         )
     endpoints.sort(key=lambda e: (e.host, e.path_template, e.method))

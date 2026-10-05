@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from ghost_api.net import RateLimiter, evaluate_robots, robots_url
+from ghost_api.net import RateLimiter, RobotsPolicy, evaluate_robots, robots_url
 
 ROBOTS = """
 User-agent: *
@@ -47,3 +47,17 @@ def test_rate_limiter_spaces_calls() -> None:
 def test_rate_limiter_rejects_bad_rate() -> None:
     with pytest.raises(ValueError):
         RateLimiter(0)
+
+
+def test_robots_policy_checks_every_url_on_its_host() -> None:
+    policy = RobotsPolicy.from_text("example.com", "User-agent: *\nDisallow: /admin/\n")
+    assert policy.allows("https://example.com/books")
+    assert not policy.allows("https://example.com/admin/users")
+    assert policy.allows("https://api.example.com/admin/x")  # other host: not covered
+
+
+def test_robots_policy_defaults() -> None:
+    assert RobotsPolicy.allow_all("example.com").allows("https://example.com/anything")
+    blocked = RobotsPolicy("example.com", None, False, "unreachable")
+    assert not blocked.allows("https://example.com/")
+    assert blocked.verdict("https://example.com/").reason == "unreachable"

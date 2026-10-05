@@ -50,6 +50,10 @@ def looks_like_id(segment: str) -> bool:
     )
 
 
+def _is_leading_version(pos: int, segment: str, length: int) -> bool:
+    return pos == 0 and length > 1 and segment.isdigit() and len(segment) <= 2
+
+
 def looks_like_slug(segment: str) -> bool:
     if _VERSION_RE.match(segment):
         return False
@@ -66,11 +70,18 @@ def infer_type(values: list[str]) -> ParamType:
     return "string"
 
 
+_INVARIANT = {"news", "series", "species", "data", "media", "settings", "metrics"}
+
+
 def _singular(word: str) -> str:
     word = re.sub(r"[^a-zA-Z0-9]+", "_", word).strip("_").lower()
     if word.endswith("ies") and len(word) > 4:
         return word[:-3] + "y"
-    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+    if word.endswith(("xes", "ches", "shes", "sses", "zes")):
+        return word[:-2]
+    if word in _INVARIANT or word.endswith(("us", "is", "ss")):
+        return word  # status, analysis, address, news
+    if word.endswith("s") and len(word) > 3:
         return word[:-1]
     return word
 
@@ -116,8 +127,15 @@ def group_urls(requests: list[tuple[str, str]]) -> list[TemplateMatch]:
 
 
 def _template_shape(shape: _Shape) -> list[TemplateMatch]:
-    # Rule 1: each segment that looks like an ID is a parameter, URL by URL.
-    masks = [[looks_like_id(seg) for seg in segs] for segs in shape.segments]
+    # Rule 1: each segment that looks like an ID is a parameter, URL by URL. A short number
+    # as the first of several segments is an API version (/1/indexes/...), not an ID.
+    masks = [
+        [
+            looks_like_id(seg) and not _is_leading_version(p, seg, len(segs))
+            for p, seg in enumerate(segs)
+        ]
+        for segs in shape.segments
+    ]
     n = len(shape.segments[0]) if shape.segments else 0
 
     # Rule 2: among URLs identical everywhere except `pos`, a varying slug-like or
@@ -170,7 +188,10 @@ def _param_names(skeleton: list[str | None], samples: list[list[str]]) -> list[s
         prev = skeleton[pos - 1] if pos > 0 else None
         values = [segs[pos] for segs in samples]
         if idx == len(param_positions) - 1:
-            name = "id" if all(looks_like_id(v) for v in values) else "slug"
+            if all(looks_like_id(v) for v in values):
+                name = "id"
+            else:  # /author/{author}, /indexes/{index}
+                name = _singular(prev) if prev else "slug"
         elif prev:
             name = f"{_singular(prev)}_id"
         else:

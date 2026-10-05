@@ -94,6 +94,7 @@ class TrafficRecorder:
             resp_content_type=resp_ctype,
             resp_body=safe_body,
             truncated=truncated,
+            third_party=filters.is_third_party(request.url, self.target_host),
         )
 
 

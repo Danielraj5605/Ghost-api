@@ -1,4 +1,4 @@
-"""Command-line entry point: `ghost-api run | refresh | inspect`."""
+"""Command-line entry point: `ghost-api run | doctor | inspect | refresh`."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ghost_api import __version__
+from ghost_api.agent.orchestrator import Explorer, StepRecord
 from ghost_api.analysis.analyzer import analyze
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import top_level_fields
@@ -23,7 +24,7 @@ from ghost_api.config import Settings, default_db_path, load_env
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.store import Store
-from ghost_api.net import RateLimiter, check_robots
+from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
 
 app = typer.Typer(
     help="Ghost API: turn any website into a typed, tested API client.",
@@ -32,7 +33,7 @@ app = typer.Typer(
 )
 console = Console()
 
-# Until the agent loop exists (Stage 4), `run` explores by scrolling a few times.
+# With --no-agent, `run` just scrolls to the bottom this many times.
 AUTO_SCROLLS = 5
 
 
@@ -83,8 +84,11 @@ def run(
         bool, typer.Option("--ignore-robots", help="Skip the robots.txt check.")
     ] = False,
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+    no_agent: Annotated[
+        bool, typer.Option("--no-agent", help="Don't use the LLM; just load and scroll the page.")
+    ] = False,
 ) -> None:
-    """Explore a website and capture its hidden API traffic."""
+    """Explore a website with the AI agent and map its hidden API."""
     try:
         settings = Settings(
             url=_normalize_url(url),
@@ -104,11 +108,13 @@ def run(
     host = urlsplit(settings.url).hostname or ""
     limiter = RateLimiter(settings.rate_limit)
 
-    # Stage 0 of the workflow: pre-checks.
+    # Workflow stage 0: pre-checks.
     if settings.ignore_robots:
+        robots = RobotsPolicy.allow_all(host)
         console.print("[yellow]![/] robots.txt check skipped (--ignore-robots)")
     else:
-        verdict = check_robots(settings.url, limiter)
+        robots = fetch_robots(settings.url, limiter)
+        verdict = robots.verdict(settings.url)
         if not verdict.allowed:
             console.print(f"[red]Stopped:[/] {verdict.reason} for {settings.url}")
             console.print("Use --ignore-robots only if you have permission to access this site.")
@@ -118,42 +124,95 @@ def run(
             limiter.slow_down_to(verdict.crawl_delay)
             console.print(f"   honoring Crawl-delay of {verdict.crawl_delay}s")
 
+    gateway: LLMGateway | None = None
+    if not no_agent:
+        gateway = LLMGateway(default_providers(), max_calls=settings.max_llm_calls)
+        if not gateway.providers:
+            console.print(
+                "[red]No LLM API key found.[/] Add one to .env (see .env.example), "
+                "or use --no-agent to only scroll the page."
+            )
+            raise typer.Exit(code=2)
+
     console.print(f"[bold]Goal:[/] {settings.goal}")
     console.print("[bold]Exploring site...[/]")
 
-    def show(req: CapturedRequest) -> None:
-        console.print(f"   [cyan]\\[captured][/] {req.method:<6} {req.status}  {_short(req.url)}")
-
     started = time.monotonic()
     status = "failed"
+    reason = ""
     with Store(settings.db_path) as store:
         run_id = store.create_run(host, settings.url, settings.goal)
+        if gateway is not None:
+            gateway.store = store  # cache LLM answers in the same database
 
         def on_capture(req: CapturedRequest) -> None:
             store.add_request(run_id, req)
-            show(req)
+            tag = "third-party " if req.third_party else ""
+            console.print(
+                f"      [dim cyan]{tag}{req.method} {req.status} {_short(req.url, 70)}[/]"
+            )
+
+        def on_step(rec: StepRecord) -> None:
+            store.add_step(
+                run_id, rec.step, rec.thought, rec.action, rec.args, rec.result,
+                len(rec.new_endpoints),
+            )  # fmt: skip
+            args = ", ".join(f"{k}={v!r}" for k, v in rec.args.items())
+            console.print(f"[bold]Step {rec.step}[/] {rec.action}({args})  [dim]{rec.thought}[/]")
+            for label in rec.new_endpoints:
+                console.print(f"   [green]+ new endpoint[/] {label}")
+            if rec.result.startswith(("rejected", "failed")):
+                console.print(f"   [yellow]{rec.result}[/]")
 
         recorder = TrafficRecorder(host, on_capture=on_capture)
         try:
             with BrowserSession(settings.url, recorder, headed=settings.headed) as browser:
-                browser.goto(settings.url)
-                for _ in range(AUTO_SCROLLS):
-                    browser.scroll("bottom")
-            status = "captured"
+                if gateway is None:
+                    browser.goto(settings.url)
+                    for _ in range(AUTO_SCROLLS):
+                        browser.scroll("bottom")
+                    status, reason = "captured", "--no-agent: scrolled the page"
+                else:
+                    explorer = Explorer(
+                        browser=browser,
+                        llm=gateway,
+                        captured=lambda: recorder.captured,
+                        goal=settings.goal,
+                        start_url=settings.url,
+                        target_host=host,
+                        max_steps=settings.max_steps,
+                        max_minutes=settings.max_minutes,
+                        robots=robots,
+                        on_step=on_step,
+                    )
+                    result = explorer.run()
+                    status, reason = result.status, result.reason
         except KeyboardInterrupt:
-            status = "interrupted"
-            console.print("[yellow]Interrupted. Partial results were saved.[/]")
+            status, reason = "interrupted", "stopped by user"
         except Exception as exc:
             console.print(f"[red]Browser error:[/] {exc}")
+            reason = str(exc)
         finally:
             store.finish_run(run_id, status)
+            if gateway is not None:
+                store.record_usage(run_id, gateway.usage.calls, gateway.usage.tokens)
+                gateway.close()
 
-        # Stage 4 of the workflow (learn): turn traffic into an endpoint map.
+        # Workflow stage 4 (learn): the final endpoint map.
         endpoints = analyze(recorder.captured)
         store.save_endpoints(host, run_id, endpoints)
+        console.print()
+        console.print(f"[bold]Finished:[/] {status} ({reason})")
         _print_summary(recorder, endpoints, host, time.monotonic() - started, run_id)
+        if gateway is not None:
+            u = gateway.usage
+            providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"
+            console.print(
+                f"[dim]LLM: {u.calls} calls ({providers}), {u.tokens:,} tokens, "
+                f"{u.cache_hits} cached[/]"
+            )
         console.print(f"[dim]Saved to {settings.db_path}[/]")
-    if status == "failed":
+    if status in ("failed", "llm-unavailable"):
         raise typer.Exit(code=1)
 
 

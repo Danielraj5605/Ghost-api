@@ -63,3 +63,35 @@ def top_level_fields(schema: dict[str, Any] | None, limit: int = 8) -> str:
     shown = ", ".join(names[:limit])
     more = f" (+{len(names) - limit} more)" if len(names) > limit else ""
     return prefix + shown + more
+
+
+def field_paths(schema: dict[str, Any] | None, max_depth: int = 3, limit: int = 20) -> list[str]:
+    """Leaf field paths, e.g. ['page', 'quotes[].author.name', 'quotes[].tags[]'].
+
+    Lets the agent see what data an endpoint already returns, including nested fields.
+    """
+    paths: list[str] = []
+
+    def walk(node: dict[str, Any], prefix: str, depth: int) -> None:
+        if len(paths) >= limit:
+            return
+        kind = node.get("type")
+        if kind == "array" or (isinstance(kind, list) and "array" in kind):
+            items = node.get("items") or {}
+            if items.get("properties") and depth < max_depth:
+                walk(items, prefix + "[]", depth)
+            else:
+                paths.append(prefix + "[]")
+            return
+        props = node.get("properties")
+        if props and depth < max_depth:
+            for key, child in props.items():
+                walk(child, f"{prefix}.{key}" if prefix else key, depth + 1)
+                if len(paths) >= limit:
+                    return
+        elif prefix:
+            paths.append(prefix)
+
+    if schema:
+        walk(schema, "", 0)
+    return paths

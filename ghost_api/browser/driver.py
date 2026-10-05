@@ -11,15 +11,28 @@ from types import TracebackType
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 
+from ghost_api.browser.snapshot import (
+    SNAPSHOT_ARGS,
+    SNAPSHOT_JS,
+    PageSnapshot,
+    build_snapshot,
+)
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import USER_AGENT_SUFFIX
+from ghost_api.net import RobotsPolicy
 
 NAV_TIMEOUT_MS = 30_000
 SETTLE_TIMEOUT_MS = 8_000
 QUIET_MS = 600
 POLL_MS = 100
+ACTION_TIMEOUT_MS = 5_000
+
+
+class ActionError(Exception):
+    """An agent action could not be performed; the message is shown to the agent."""
 
 
 class BrowserSession:
@@ -32,6 +45,7 @@ class BrowserSession:
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self._inflight = 0
+        self.popup_urls: list[str] = []
 
     @property
     def page(self) -> Page:
@@ -53,6 +67,8 @@ class BrowserSession:
         probe.close()
         self._context = self._browser.new_context(user_agent=f"{base_ua} {USER_AGENT_SUFFIX}")
         self._page = self._context.new_page()
+        # Registered after the main tab exists, so only real popups are caught.
+        self._context.on("page", self._on_popup)
         self._page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
         self._page.on("request", lambda _: self._track(+1))
         self._page.on("requestfinished", lambda _: self._track(-1))
@@ -101,8 +117,69 @@ class BrowserSession:
     def _track(self, delta: int) -> None:
         self._inflight = max(0, self._inflight + delta)
 
+    def _on_popup(self, popup: Page) -> None:
+        """Keep everything in one tab: remember where a popup was going, then close it."""
+        if popup is self._page:
+            return
+        with contextlib.suppress(PlaywrightError):
+            popup.wait_for_load_state("domcontentloaded", timeout=ACTION_TIMEOUT_MS)
+            self.popup_urls.append(popup.url)
+            popup.close()
+
+    @property
+    def url(self) -> str:
+        return self.page.url
+
+    def snapshot(self, target_host: str, robots: RobotsPolicy | None = None) -> PageSnapshot:
+        raw = self.page.evaluate(SNAPSHOT_JS, SNAPSHOT_ARGS)
+        return build_snapshot(raw, target_host, robots)
+
+    def _element(self, element_id: int):  # type: ignore[no-untyped-def]
+        loc = self.page.locator(f'[data-ghost-id="{element_id}"]').first
+        if loc.count() == 0:
+            raise ActionError(f"element [{element_id}] is no longer on the page")
+        return loc
+
+    def _after_action(self) -> list[CapturedRequest]:
+        # A click may start a navigation; give the new document a moment to load.
+        with contextlib.suppress(PlaywrightError):
+            self.page.wait_for_load_state("domcontentloaded", timeout=ACTION_TIMEOUT_MS)
+        return self.settle()
+
+    def click(self, element_id: int) -> list[CapturedRequest]:
+        loc = self._element(element_id)
+        try:
+            loc.click(timeout=ACTION_TIMEOUT_MS)
+        except PlaywrightError:
+            # Covered by an overlay or animating: fall back to a DOM click.
+            try:
+                loc.evaluate("el => el.click()")
+            except PlaywrightError as exc:
+                raise ActionError(f"could not click [{element_id}]: {_first_line(exc)}") from exc
+        return self._after_action()
+
+    def type_text(self, element_id: int, text: str, submit: bool) -> list[CapturedRequest]:
+        loc = self._element(element_id)
+        try:
+            loc.fill(text, timeout=ACTION_TIMEOUT_MS)
+            if submit:
+                loc.press("Enter", timeout=ACTION_TIMEOUT_MS)
+        except PlaywrightError as exc:
+            raise ActionError(f"could not type into [{element_id}]: {_first_line(exc)}") from exc
+        return self._after_action()
+
+    def go_back(self) -> list[CapturedRequest]:
+        try:
+            self.page.go_back(wait_until="domcontentloaded")
+        except PlaywrightError as exc:
+            raise ActionError(f"could not go back: {_first_line(exc)}") from exc
+        return self.settle()
+
     def goto(self, url: str) -> list[CapturedRequest]:
-        self.page.goto(url, wait_until="domcontentloaded")
+        try:
+            self.page.goto(url, wait_until="domcontentloaded")
+        except PlaywrightError as exc:
+            raise ActionError(f"could not open {url}: {_first_line(exc)}") from exc
         return self.settle()
 
     def scroll(self, direction: str = "down") -> list[CapturedRequest]:
@@ -114,3 +191,7 @@ class BrowserSession:
             height = viewport["height"] if viewport else 800
             self.page.mouse.wheel(0, delta * height)
         return self.settle()
+
+
+def _first_line(exc: Exception) -> str:
+    return str(exc).strip().splitlines()[0][:160] if str(exc).strip() else type(exc).__name__

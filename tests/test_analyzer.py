@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from ghost_api.analysis.analyzer import analyze, classify_query_params
-from ghost_api.analysis.schema import top_level_fields, type_label
+from ghost_api.analysis.schema import field_paths, top_level_fields, type_label
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.memory.store import Store
 
@@ -129,3 +129,13 @@ def test_store_roundtrip_and_upsert(tmp_path: Path) -> None:
         store.save_endpoints("example.com", run_id, endpoints)  # upsert, no duplicates
         loaded = store.load_endpoints("example.com")
     assert loaded == endpoints
+
+
+def test_field_paths_show_nested_data() -> None:
+    (ep,) = analyze(QUOTES)
+    paths = field_paths(ep.response_schema)
+    assert "quotes[].author.name" in paths
+    assert "quotes[].text" in paths and "page" in paths
+    assert field_paths({"type": "array", "items": {"type": "string"}}) == ["[]"]
+    assert field_paths(None) == []
+    assert len(field_paths(ep.response_schema, limit=2)) == 2

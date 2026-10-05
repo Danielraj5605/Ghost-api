@@ -20,4 +20,5 @@ class CapturedRequest:
     resp_content_type: str | None
     resp_body: str | None
     truncated: bool = False
+    third_party: bool = False  # served from a different domain than the target site
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())

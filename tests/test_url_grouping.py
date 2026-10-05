@@ -1,6 +1,6 @@
 import pytest
 
-from ghost_api.analysis.url_grouping import group_urls, infer_type, looks_like_id
+from ghost_api.analysis.url_grouping import _singular, group_urls, infer_type, looks_like_id
 
 
 def templates(*urls: str, method: str = "GET") -> list[str]:
@@ -56,7 +56,7 @@ def test_plain_word_siblings_stay_separate_endpoints() -> None:
 
 def test_slugs_collapse() -> None:
     out = templates("https://ex.com/author/albert-einstein", "https://ex.com/author/jane-austen")
-    assert out == ["/author/{slug}"] * 2
+    assert out == ["/author/{author}"] * 2
 
 
 def test_id_and_word_in_same_position_do_not_interfere() -> None:
@@ -72,7 +72,7 @@ def test_api_versions_stay_literal() -> None:
 def test_high_cardinality_words_collapse() -> None:
     words = ["love", "life", "humor", "books", "truth", "inspirational"]
     out = templates(*(f"https://ex.com/tag/{w}" for w in words))
-    assert set(out) == {"/tag/{slug}"}
+    assert set(out) == {"/tag/{tag}"}
 
 
 def test_methods_and_hosts_are_kept_apart() -> None:
@@ -96,6 +96,15 @@ def test_param_values_are_reported() -> None:
     assert m.param_values == ("7", "19")
 
 
+def test_leading_number_is_an_api_version() -> None:
+    out = templates(
+        "https://x.algolia.net/1/indexes/Item_dev/query",
+        "https://x.algolia.net/1/indexes/Item_dev_sort_date/query",
+    )
+    assert out == ["/1/indexes/{index}/query"] * 2
+    assert templates("https://ex.com/42") == ["/{id}"]  # alone, it's still an ID
+
+
 def test_root_and_trailing_slash() -> None:
     assert templates("https://ex.com/", "https://ex.com") == ["/", "/"]
     assert templates("https://ex.com/api/items/") == ["/api/items/"]
@@ -113,3 +122,12 @@ def test_root_and_trailing_slash() -> None:
 )
 def test_infer_type(values: list[str], expected: str) -> None:
     assert infer_type(values) == expected
+
+
+@pytest.mark.parametrize(
+    ("word", "singular"),
+    [("books", "book"), ("categories", "category"), ("indexes", "index"),
+     ("matches", "match"), ("addresses", "address"), ("news", "news"), ("status", "status")],
+)  # fmt: skip
+def test_singular(word: str, singular: str) -> None:
+    assert _singular(word) == singular

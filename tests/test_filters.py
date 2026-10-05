@@ -21,6 +21,13 @@ def test_site_of(host: str, site: str) -> None:
     assert filters.site_of(host) == site
 
 
+def test_classify_keeps_third_party_apis() -> None:
+    url = "https://uj5wyc0l7x-dsn.algolia.net/1/indexes/Item/query"
+    assert filters.classify("xhr", url, "hn.algolia.com") is None
+    assert filters.is_third_party(url, "hn.algolia.com")
+    assert not filters.is_third_party("https://api.example.com/x", "www.example.com")
+
+
 def test_classify_keeps_same_site_fetch() -> None:
     assert filters.classify("fetch", "https://api.example.com/v1/books", "www.example.com") is None
     assert filters.classify("xhr", "https://example.com/api/quotes?page=2", "example.com") is None
@@ -35,10 +42,13 @@ def test_classify_keeps_same_site_fetch() -> None:
         ("document", "https://example.com/", "resource:document"),
         ("fetch", "https://www.google-analytics.com/g/collect?v=2", "analytics"),
         ("xhr", "https://o123.ingest.sentry.io/api/1/envelope/", "analytics"),
-        ("fetch", "https://cdn.other-site.com/data.json", "off-site"),
+        ("fetch", "https://www.gstatic.com/recaptcha/api2/x.json", "infrastructure"),
+        ("xhr", "https://api.stripe.com/v1/elements/sessions", "infrastructure"),
         ("fetch", "https://example.com/collect?event=view", "analytics"),
         ("fetch", "https://telemetry.example.com/1/settings", "analytics"),
         ("xhr", "https://metrics.example.com/v1/batch", "analytics"),
+        ("fetch", "https://c3-de-1.algolia.net/1/isalive?probe=1", "health-check"),
+        ("fetch", "https://example.com/api/healthz", "health-check"),
     ],
 )
 def test_classify_drops_noise(resource_type: str, url: str, reason: str) -> None:

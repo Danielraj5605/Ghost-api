@@ -248,7 +248,7 @@ Priority: **M** = must have (MVP), **S** = should have, **C** = could have (late
 | FR-7 | Open the URL in a real Chromium browser through Playwright | M |
 | FR-8 | Extract a compact list of interactive elements (buttons, links, inputs) with short IDs | M |
 | FR-9 | Let the agent click, type, scroll, go back and navigate | M |
-| FR-10 | Stay on the target domain and its API subdomains | M |
+| FR-10 | Stay on the target domain and its subdomains when navigating; capture API calls to third-party domains too, labelled as third-party | M |
 | FR-11 | Block destructive actions (elements matching delete, buy, pay, checkout, unsubscribe) | M |
 | FR-12 | Check robots.txt before exploring; stop unless `--ignore-robots` is given | M |
 
@@ -611,16 +611,19 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** the agent explores the site toward the goal on its own.
 
 **Tasks**
-- [ ] `browser/snapshot.py`: list visible interactive elements with short IDs, labels and roles; cap the size
-- [ ] Block destructive elements (delete, buy, pay, checkout, unsubscribe) and links off the domain
-- [ ] `agent/tools.py`: click, type, scroll, navigate, go_back, finish
-- [ ] `agent/prompts.py`: system prompt (role, rules, tools, JSON format) and step prompt (observation, goal coverage, endpoint map, recent steps)
-- [ ] `agent/orchestrator.py`: observe, decide, act, learn loop; run the analyzer after each step
-- [ ] Goal coverage: ask the LLM which goal parts the current endpoints satisfy (cheap, done every few steps)
-- [ ] Stopping rules from section 2.5
-- [ ] Log every step to `agent_steps`
-- [ ] Ctrl+C handling that saves partial state
-- [ ] Rich live view: current action, endpoints found, budget left
+- [x] `browser/snapshot.py`: list visible interactive elements with short IDs, labels and roles; cap the size
+- [x] Block destructive elements (delete, buy, pay, checkout, unsubscribe) and links off the domain
+- [x] `agent/tools.py`: click, type, scroll, navigate, go_back, finish
+- [x] `agent/prompts.py`: system prompt (role, rules, tools, JSON format) and step prompt (observation, goal coverage, endpoint map, recent steps)
+- [x] `agent/orchestrator.py`: observe, decide, act, learn loop; run the analyzer after each step
+- [x] Goal coverage: each decision also reports `goal_covered` and `missing`, judged from the endpoints' nested response fields (no extra LLM call)
+- [x] Stopping rules from section 2.5
+- [x] Log every step to `agent_steps`
+- [x] Ctrl+C handling that saves partial state
+- [x] Live step log: each action with the agent's reasoning, new endpoints, captured requests and LLM usage
+
+- [x] Third-party APIs (e.g. a site's search on Algolia) are captured and labelled; analytics, infrastructure and health checks are filtered (added)
+- [x] `--no-agent` flag: capture by scrolling only, without an LLM (added)
 
 **Deliverable:** the agent explores `quotes.toscrape.com/scroll` toward a goal and stops by itself.
 

@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
 
-> **Status:** In development. Stages 0–3 are done: `ghost-api run` opens a site in a real browser, captures its filtered, redacted API traffic, and turns it into an endpoint map (URL templates, parameters and JSON schemas) stored in SQLite. An LLM gateway with provider fallback, JSON validation and caching is ready (`ghost-api doctor` checks your keys). The AI agent, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
+> **Status:** In development. Stages 0–4 are done: `ghost-api run` opens a site in a real browser, and an AI agent explores it toward your goal (clicking, typing, scrolling) while every API call is captured, redacted and turned into an endpoint map (URL templates, parameters and JSON schemas) stored in SQLite. `ghost-api doctor` checks your LLM keys. Hypothesis testing, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
 
 ---
 
@@ -320,6 +320,12 @@ ghost-api refresh quotes.toscrape.com
 
 # Show what's stored for a site
 ghost-api inspect quotes.toscrape.com
+
+# Check that your LLM keys work
+ghost-api doctor
+
+# Capture without the AI agent (just load and scroll)
+ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 ```
 
 | Option | Default | Meaning |
@@ -332,6 +338,7 @@ ghost-api inspect quotes.toscrape.com
 | `--max-minutes` | 15 | Time limit |
 | `--rate-limit` | 1.0 | Maximum requests per second to the target site |
 | `--ignore-robots` | off | Skip the robots.txt check (use responsibly) |
+| `--no-agent` | off | Don't use the LLM; just load and scroll the page |
 
 ---
 
@@ -448,7 +455,7 @@ Check a site's terms of service before generating a client for it. For demos and
 | 1 | Traffic capture | Done |
 | 2 | API analysis (URL grouping, schemas) | Done |
 | 3 | LLM gateway (fallback + cache) | Done |
-| 4 | Agent exploration loop | Planned |
+| 4 | Agent exploration loop | Done |
 | 5 | Hypothesis testing | Planned |
 | 6 | Code generation | Planned |
 | 7 | Verification and replanning | Planned |

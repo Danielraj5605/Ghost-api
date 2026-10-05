@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS requests (
     resp_content_type TEXT,
     resp_body         TEXT,
     truncated         INTEGER NOT NULL DEFAULT 0,
+    third_party       INTEGER NOT NULL DEFAULT 0,
     timestamp         TEXT NOT NULL
 );
 
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
     sample_count   INTEGER NOT NULL DEFAULT 0,
     statuses       TEXT NOT NULL DEFAULT '[]',
     example_urls   TEXT NOT NULL DEFAULT '[]',
+    third_party    INTEGER NOT NULL DEFAULT 0,
     last_run_id    INTEGER REFERENCES runs(id),
     updated_at     TEXT NOT NULL,
     UNIQUE (domain, method, host, url_template)
@@ -69,6 +71,18 @@ CREATE TABLE IF NOT EXISTS schemas (
     PRIMARY KEY (endpoint_id, kind)
 );
 
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER NOT NULL REFERENCES runs(id),
+    step_no    INTEGER NOT NULL,
+    thought    TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    args       TEXT NOT NULL,
+    result     TEXT NOT NULL,
+    new_endpoints INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_cache (
     prompt_hash TEXT PRIMARY KEY,
     provider    TEXT NOT NULL,
@@ -80,6 +94,13 @@ CREATE TABLE IF NOT EXISTS llm_cache (
 CREATE INDEX IF NOT EXISTS idx_requests_run ON requests(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_domain ON runs(domain);
 """
+
+
+# (table, column, definition) for columns added after the first release of a table.
+MIGRATIONS = (
+    ("requests", "third_party", "INTEGER NOT NULL DEFAULT 0"),
+    ("endpoints", "third_party", "INTEGER NOT NULL DEFAULT 0"),
+)
 
 
 @dataclass(frozen=True)
@@ -104,6 +125,15 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created."""
+        for table, column, ddl in MIGRATIONS:
+            cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -165,8 +195,9 @@ class Store:
     def add_request(self, run_id: int, req: CapturedRequest) -> int:
         cur = self.conn.execute(
             """INSERT INTO requests (run_id, method, url, status, resource_type, req_headers,
-                   req_body, req_content_type, resp_content_type, resp_body, truncated, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   req_body, req_content_type, resp_content_type, resp_body, truncated,
+                   third_party, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id,
                 req.method,
@@ -179,6 +210,7 @@ class Store:
                 req.resp_content_type,
                 req.resp_body,
                 int(req.truncated),
+                int(req.third_party),
                 req.timestamp,
             ),
         )
@@ -200,6 +232,7 @@ class Store:
                 resp_content_type=r["resp_content_type"],
                 resp_body=r["resp_body"],
                 truncated=bool(r["truncated"]),
+                third_party=bool(r["third_party"]),
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -216,19 +249,22 @@ class Store:
                 ep.sample_count,
                 json.dumps(ep.statuses),
                 json.dumps(ep.example_urls),
+                int(ep.third_party),
                 run_id,
                 _now(),
             )
             self.conn.execute(
                 """INSERT INTO endpoints (path_params, query_params, sample_count, statuses,
-                       example_urls, last_run_id, updated_at, domain, method, host, url_template)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       example_urls, third_party, last_run_id, updated_at, domain, method, host,
+                       url_template)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT (domain, method, host, url_template) DO UPDATE SET
                        path_params = excluded.path_params,
                        query_params = excluded.query_params,
                        sample_count = excluded.sample_count,
                        statuses = excluded.statuses,
                        example_urls = excluded.example_urls,
+                       third_party = excluded.third_party,
                        last_run_id = excluded.last_run_id,
                        updated_at = excluded.updated_at""",
                 (*values, domain, ep.method, ep.host, ep.path_template),
@@ -283,9 +319,35 @@ class Store:
                     response_samples=response[1] if response else 0,
                     statuses=json.loads(r["statuses"]),
                     example_urls=json.loads(r["example_urls"]),
+                    third_party=bool(r["third_party"]),
                 )
             )
         return out
+
+    # --- agent steps ---
+
+    def add_step(
+        self,
+        run_id: int,
+        step_no: int,
+        thought: str,
+        action: str,
+        args: dict[str, object],
+        result: str,
+        new_endpoints: int,
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO agent_steps (run_id, step_no, thought, action, args, result,
+                   new_endpoints, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (run_id, step_no, thought, action, json.dumps(args), result, new_endpoints, _now()),
+        )
+        self.conn.commit()
+
+    def steps_for_run(self, run_id: int) -> list[dict[str, object]]:
+        rows = self.conn.execute(
+            "SELECT * FROM agent_steps WHERE run_id = ? ORDER BY step_no", (run_id,)
+        )
+        return [{**dict(r), "args": json.loads(r["args"])} for r in rows]
 
     # --- LLM cache ---
 
