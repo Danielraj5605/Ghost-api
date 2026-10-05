@@ -46,6 +46,11 @@ class Endpoint:
     statuses: list[int] = field(default_factory=list)
     example_urls: list[str] = field(default_factory=list)
     third_party: bool = False  # served from a different domain than the target site
+    # Set by the prober (Stage 5):
+    replayable: bool | None = None  # None = not tested
+    auth_type: str | None = None
+    pagination: dict[str, Any] | None = None
+    required_headers: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:

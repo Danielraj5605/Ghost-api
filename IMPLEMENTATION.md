@@ -638,13 +638,16 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** the agent checks its guesses by calling the API directly.
 
 **Tasks**
-- [ ] `call_endpoint` tool using httpx with the rate limiter; reuses browser cookies only in memory
-- [ ] `inspect_endpoint` and `record_hypothesis` tools; `hypotheses` table
-- [ ] `analysis/detectors.py`: guess pagination (page, offset, cursor parameters, `next` links) and auth style
-- [ ] Required-header test: repeat the call with each header removed and compare the result
-- [ ] Pagination test: request the next page and compare the IDs that come back
-- [ ] `ask_user` tool, plus login-wall detection (redirect to a login page, or 401 on first load)
-- [ ] Bot-challenge detection: stop and report
+- [x] `call_endpoint` agent action, using httpx with the shared rate limiter; reuses the original headers and cookies from memory only (never stored or sent to the LLM)
+- [x] Only read-only requests are ever replayed: GET, and POSTs whose URL marks them as searches or queries (GraphQL mutations excluded); robots.txt checked per host
+- [x] `hypotheses` table; every test is stored with its result and evidence. (A separate `inspect_endpoint` / `record_hypothesis` tool turned out unnecessary: the prompt already shows each endpoint's fields, and the prober records hypotheses itself.)
+- [x] `analysis/detectors.py`: guess pagination (page, offset, cursor; in the query or the JSON body) and auth style
+- [x] Required-header test: drop all non-browser headers at once; only if that breaks the call, drop them one at a time
+- [x] Secret query parameters (API keys) tested the same way
+- [x] Pagination test: request the next page / offset / cursor and compare record IDs
+- [x] `ask_user` action (headed mode in a terminal), plus a login-form hint in the prompt
+- [x] Bot-challenge detection: stop and report (never bypass)
+- [x] LLM gateway: provider cooldown after rate-limit errors, waits briefly when all providers are limited, budget counts answered calls only, `gemini-lite` provider adds a separate free quota (added after live testing)
 
 **Deliverable:** endpoints carry confirmed pagination and auth info, with evidence.
 

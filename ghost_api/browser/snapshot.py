@@ -121,6 +121,7 @@ class PageSnapshot:
     text: str
     elements: list[Element] = field(default_factory=list)
     blocked: int = 0  # elements removed for safety
+    has_password_field: bool = False  # likely a login form
     hidden: int = 0  # elements left out to keep the prompt small
 
     def element(self, element_id: int) -> Element | None:
@@ -174,7 +175,9 @@ def build_snapshot(
     kept: list[Element] = []
     seen: set[tuple[str, str, str]] = set()
     blocked = 0
+    password = False
     for item in raw.get("elements", []):
+        password = password or kind_of(item) == "input:password"
         if block_reason(item, target_host, robots):
             blocked += 1
             continue
@@ -201,6 +204,7 @@ def build_snapshot(
         elements=shown,
         blocked=blocked,
         hidden=len(kept) - len(shown),
+        has_password_field=password,
     )
 
 

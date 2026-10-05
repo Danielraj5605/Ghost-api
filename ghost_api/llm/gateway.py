@@ -19,6 +19,7 @@ import hashlib
 import json
 import re
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
@@ -39,6 +40,8 @@ MAX_REPAIRS = 2  # re-asks after an invalid JSON reply
 BACKOFF_BASE_S = 2.0
 MAX_BACKOFF_S = 20.0
 TIMEOUT_S = 90.0
+DEFAULT_COOLDOWN_S = 60.0  # skip a rate-limited provider this long
+MAX_COOLDOWN_WAIT_S = 65.0  # when all are rate-limited, wait at most this long
 
 
 class LLMError(Exception):
@@ -59,9 +62,10 @@ class LLMUnavailable(LLMError):
 
 
 class _Retryable(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
+    def __init__(self, message: str, retry_after: float | None = None, quota: bool = False) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+        self.quota = quota  # rate/quota limit: retrying right away won't help
 
 
 class _Fatal(Exception):
@@ -70,11 +74,16 @@ class _Fatal(Exception):
 
 @dataclass
 class Usage:
-    calls: int = 0
+    calls: int = 0  # every HTTP request sent
+    answered: int = 0  # requests that returned a reply; this is what the budget counts
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cache_hits: int = 0
     by_provider: dict[str, int] = field(default_factory=dict)
+    retries: int = 0  # 429 / 5xx / network errors retried
+    repairs: int = 0  # invalid JSON replies sent back for correction
+    fallbacks: int = 0  # times a provider was given up on for a request
+    problems: Counter[str] = field(default_factory=Counter)  # short reasons, for diagnosis
 
     @property
     def tokens(self) -> int:
@@ -98,6 +107,7 @@ class LLMGateway:
         max_calls: int | None = None,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.providers = [p for p in providers if p.api_key]
         self.store = store
@@ -105,6 +115,8 @@ class LLMGateway:
         self.usage = Usage()
         self._client = client or httpx.Client(timeout=TIMEOUT_S)
         self._sleep = sleep
+        self._clock = clock
+        self._cooldown_until: dict[str, float] = {}  # provider name -> clock time
 
     def close(self) -> None:
         self._client.close()
@@ -131,14 +143,47 @@ class LLMGateway:
                     self.usage.cache_hits += 1
                     return LLMReply(cached, provider.name, provider.model, True, parsed)
 
+        try:
+            return self._ask_chain(messages, response_model, temperature)
+        except LLMUnavailable:
+            # Every provider is rate-limited. If one frees up soon, wait for it once.
+            wait = self._shortest_cooldown()
+            if wait is None or wait > MAX_COOLDOWN_WAIT_S:
+                raise
+            self.usage.problems[f"waited {wait:.0f}s for a rate limit to clear"] += 1
+            self._sleep(wait)
+            return self._ask_chain(messages, response_model, temperature)
+
+    def _shortest_cooldown(self) -> float | None:
+        now = self._clock()
+        waits = [until - now for until in self._cooldown_until.values() if until > now]
+        if len(waits) < len(self.providers):
+            return None  # some provider failed for a reason other than rate limits
+        return min(waits) + 1.0
+
+    def _ask_chain(
+        self,
+        messages: list[Message],
+        response_model: type[T] | None,
+        temperature: float,
+    ) -> LLMReply[T]:
         errors: dict[str, str] = {}
         for provider in self.providers:
+            wait = self._cooldown_until.get(provider.name, 0.0) - self._clock()
+            if wait > 0:
+                errors[provider.name] = f"rate-limited, cooling down for {wait:.0f}s"
+                continue
             try:
                 return self._ask_provider(provider, messages, response_model, temperature)
             except BudgetExceeded:
                 raise
             except (_Retryable, _Fatal, _InvalidReply) as exc:
+                if isinstance(exc, _Retryable) and exc.quota:
+                    cooldown = exc.retry_after or DEFAULT_COOLDOWN_S
+                    self._cooldown_until[provider.name] = self._clock() + cooldown
                 errors[provider.name] = str(exc)
+                self.usage.fallbacks += 1
+                self.usage.problems[f"{provider.name}: {str(exc)[:70]}"] += 1
         raise LLMUnavailable(errors)
 
     # --- internals ---
@@ -161,6 +206,8 @@ class LLMGateway:
                 parsed = _validate(text, response_model)
             except (ValueError, ValidationError) as exc:
                 last_error = _short_error(exc)
+                self.usage.repairs += 1
+                self.usage.problems[f"{provider.name} invalid reply: {last_error[:70]}"] += 1
                 convo += [
                     {"role": "assistant", "content": text},
                     {
@@ -185,8 +232,10 @@ class LLMGateway:
             try:
                 return self._complete(provider, messages, response_model, temperature)
             except _Retryable as exc:
-                if attempt == MAX_RETRIES:
+                if attempt == MAX_RETRIES or exc.quota:
                     raise
+                self.usage.retries += 1
+                self.usage.problems[f"{provider.name}: {str(exc)[:70]}"] += 1
                 delay = exc.retry_after or BACKOFF_BASE_S * (2**attempt)
                 self._sleep(min(delay, MAX_BACKOFF_S))
         raise AssertionError("unreachable")
@@ -198,7 +247,7 @@ class LLMGateway:
         response_model: type[BaseModel] | None,
         temperature: float,
     ) -> str:
-        if self.max_calls is not None and self.usage.calls >= self.max_calls:
+        if self.max_calls is not None and self.usage.answered >= self.max_calls:
             raise BudgetExceeded(f"LLM call budget of {self.max_calls} used up")
         payload: dict[str, Any] = {
             "model": provider.model,
@@ -224,9 +273,11 @@ class LLMGateway:
             raise _Retryable(f"network error: {type(exc).__name__}") from exc
 
         if resp.status_code == 429 or resp.status_code >= 500:
+            retry_after = _retry_after(resp.headers.get("retry-after")) or _retry_delay(resp.text)
             raise _Retryable(
                 f"HTTP {resp.status_code}: {_error_message(resp)}",
-                retry_after=_retry_after(resp.headers.get("retry-after")),
+                retry_after=retry_after,
+                quota=resp.status_code == 429,
             )
         if resp.status_code >= 400:
             raise _Fatal(f"HTTP {resp.status_code}: {_error_message(resp)}")
@@ -236,6 +287,7 @@ class LLMGateway:
             text = data["choices"][0]["message"]["content"] or ""
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise _Retryable("malformed response from provider") from exc
+        self.usage.answered += 1
         usage = data.get("usage") or {}
         self.usage.prompt_tokens += int(usage.get("prompt_tokens") or 0)
         self.usage.completion_tokens += int(usage.get("completion_tokens") or 0)
@@ -328,6 +380,15 @@ def _retry_after(value: str | None) -> float | None:
         return float(value) if value else None
     except ValueError:
         return None
+
+
+_RETRY_DELAY_RE = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
+
+
+def _retry_delay(body: str) -> float | None:
+    """Gemini puts the wait time in the error body: "retryDelay": "37s"."""
+    match = _RETRY_DELAY_RE.search(body)
+    return float(match.group(1)) if match else None
 
 
 def _error_message(resp: httpx.Response) -> str:

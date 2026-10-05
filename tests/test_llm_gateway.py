@@ -87,9 +87,9 @@ def test_structured_reply_is_validated() -> None:
     assert "JSON schema" in body["messages"][0]["content"]
 
 
-def test_rate_limit_retries_then_falls_back() -> None:
+def test_server_errors_are_retried_then_fall_back() -> None:
     fake = Fake(
-        alpha=[httpx.Response(429), httpx.Response(503), httpx.Response(429)],
+        alpha=[httpx.Response(503), httpx.Response(502), httpx.Response(500)],
         beta=[ok(GOOD)],
     )
     gw = gateway(fake)
@@ -103,12 +103,37 @@ def test_rate_limit_retries_then_falls_back() -> None:
 
 def test_retry_after_header_is_honored_and_capped() -> None:
     fake = Fake(
-        alpha=[httpx.Response(429, headers={"retry-after": "7"}),
-               httpx.Response(429, headers={"retry-after": "999"}), ok("x")],
+        alpha=[httpx.Response(503, headers={"retry-after": "7"}),
+               httpx.Response(503, headers={"retry-after": "999"}), ok("x")],
     )  # fmt: skip
     gw = gateway(fake)
     gw.ask(ASK)
     assert gw.sleeps == [7.0, 20.0]  # type: ignore[attr-defined]
+
+
+def test_quota_error_cools_the_provider_down() -> None:
+    now = [0.0]
+    gemini_429 = [{"error": {"code": 429, "message": "quota exceeded",
+                             "details": [{"retryDelay": "37s"}]}}]  # fmt: skip
+    fake = Fake(alpha=[httpx.Response(429, json=gemini_429), ok("alpha back")],
+                beta=[ok("b1"), ok("b2")])  # fmt: skip
+    gw = gateway(fake, clock=lambda: now[0])
+    assert gw.ask(ASK).provider == "beta"  # no retries on the same provider
+    assert fake.hosts() == ["alpha", "beta"]
+    assert gw.sleeps == []  # type: ignore[attr-defined]
+    now[0] = 30.0  # still cooling down: alpha is not even tried
+    assert gw.ask([{"role": "user", "content": "2"}]).provider == "beta"
+    assert fake.hosts() == ["alpha", "beta", "beta"]
+    now[0] = 38.0  # cooldown over
+    assert gw.ask([{"role": "user", "content": "3"}]).provider == "alpha"
+    assert gw.usage.calls == 4 and gw.usage.answered == 3
+
+
+def test_budget_counts_answered_calls_only() -> None:
+    fake = Fake(alpha=[httpx.Response(429)], beta=[ok("x")])
+    gw = gateway(fake, max_calls=1)
+    gw.ask(ASK)  # one rate-limited attempt + one answer: within a budget of 1
+    assert gw.usage.answered == 1
 
 
 def test_auth_error_skips_provider_without_retrying() -> None:
@@ -241,3 +266,38 @@ def test_error_messages_are_reported_for_list_and_dict_bodies() -> None:
         gateway(fake).ask(ASK)
     assert "high demand" in err.value.errors["alpha"]
     assert "model not found" in err.value.errors["beta"]
+
+
+def test_waits_once_when_every_provider_is_briefly_rate_limited() -> None:
+    now = [0.0]
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    fake = Fake(
+        alpha=[httpx.Response(429, headers={"retry-after": "20"}), ok("alpha after wait")],
+        beta=[httpx.Response(429, headers={"retry-after": "300"})],
+    )
+    gw = LLMGateway([A, B], client=httpx.Client(transport=httpx.MockTransport(fake)),
+                    sleep=sleep, clock=lambda: now[0])  # fmt: skip
+    assert gw.ask(ASK).text == "alpha after wait"
+    assert sleeps == [21.0]
+
+
+def test_does_not_wait_for_long_cooldowns() -> None:
+    fake = Fake(alpha=[httpx.Response(429, headers={"retry-after": "3600"})],
+                beta=[httpx.Response(429, headers={"retry-after": "7200"})])  # fmt: skip
+    gw = gateway(fake)
+    with pytest.raises(LLMUnavailable):
+        gw.ask(ASK)
+    assert gw.sleeps == []  # type: ignore[attr-defined]
+
+
+def test_default_order_includes_the_lite_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GHOST_API_PROVIDERS", raising=False)
+    monkeypatch.setenv("GHOST_API_GEMINI_LITE_MODEL", "lite-x")
+    providers = {p.name: p for p in default_providers()}
+    assert list(providers) == ["gemini", "groq", "gemini-lite", "openrouter"]
+    assert providers["gemini-lite"].model == "lite-x"

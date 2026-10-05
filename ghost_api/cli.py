@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import typer
@@ -14,7 +15,7 @@ from rich.table import Table
 
 from ghost_api import __version__
 from ghost_api.agent.orchestrator import Explorer, StepRecord
-from ghost_api.analysis.analyzer import analyze
+from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import top_level_fields
 from ghost_api.browser.driver import BrowserSession
@@ -25,6 +26,8 @@ from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
+from ghost_api.probe.prober import Prober, ProbeReport
+from ghost_api.probe.replay import Replayer
 
 app = typer.Typer(
     help="Ghost API: turn any website into a typed, tested API client.",
@@ -87,6 +90,12 @@ def run(
     no_agent: Annotated[
         bool, typer.Option("--no-agent", help="Don't use the LLM; just load and scroll the page.")
     ] = False,
+    no_probe: Annotated[
+        bool, typer.Option("--no-probe", help="Don't test endpoints by calling them directly.")
+    ] = False,
+    max_probes: Annotated[
+        int, typer.Option(help="Maximum direct API calls for testing endpoints.")
+    ] = 60,
 ) -> None:
     """Explore a website with the AI agent and map its hidden API."""
     try:
@@ -165,6 +174,8 @@ def run(
                 console.print(f"   [yellow]{rec.result}[/]")
 
         recorder = TrafficRecorder(host, on_capture=on_capture)
+        replayer = Replayer(host, limiter, robots, max_requests=max_probes)
+        ask_user = _ask_user if settings.headed and sys.stdin.isatty() else None
         try:
             with BrowserSession(settings.url, recorder, headed=settings.headed) as browser:
                 if gateway is None:
@@ -184,6 +195,10 @@ def run(
                         max_minutes=settings.max_minutes,
                         robots=robots,
                         on_step=on_step,
+                        replayer=replayer,
+                        raw_requests=lambda: recorder.raw,
+                        add_sample=recorder.add,
+                        ask_user=ask_user,
                     )
                     result = explorer.run()
                     status, reason = result.status, result.reason
@@ -198,9 +213,20 @@ def run(
                 store.record_usage(run_id, gateway.usage.calls, gateway.usage.tokens)
                 gateway.close()
 
-        # Workflow stage 4 (learn): the final endpoint map.
+        # Workflow stage 4 (hypothesize & test): call each endpoint directly.
+        reports: dict[str, ProbeReport] = {}
+        if not no_probe and status not in ("interrupted", "bot-protection", "failed"):
+            reports = _probe_all(recorder, replayer)
+        replayer.close()
+
+        # The final endpoint map, including samples gathered while probing.
         endpoints = analyze(recorder.captured)
         store.save_endpoints(host, run_id, endpoints)
+        for ep in endpoints:
+            report = reports.get(ep.key)
+            if report is not None:
+                _apply(ep, report)
+                store.save_probe_report(host, run_id, ep, report)
         console.print()
         console.print(f"[bold]Finished:[/] {status} ({reason})")
         _print_summary(recorder, endpoints, host, time.monotonic() - started, run_id)
@@ -209,11 +235,61 @@ def run(
             providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"
             console.print(
                 f"[dim]LLM: {u.calls} calls ({providers}), {u.tokens:,} tokens, "
-                f"{u.cache_hits} cached[/]"
+                f"{u.cache_hits} cached, {u.retries} retries, {u.repairs} repairs, "
+                f"{u.fallbacks} fallbacks[/]"
             )
+            for problem, count in u.problems.most_common(5):
+                console.print(f"[dim]   {count}x {problem}[/]")
         console.print(f"[dim]Saved to {settings.db_path}[/]")
     if status in ("failed", "llm-unavailable"):
         raise typer.Exit(code=1)
+
+
+def _ask_user(question: str) -> str:
+    console.print(f"\n[bold yellow]The agent asks:[/] {question}")
+    return console.input("[bold]Your answer[/] (press Enter when done): ")
+
+
+RESULT_STYLE = {"confirmed": "green", "rejected": "red", "inconclusive": "yellow"}
+
+
+def _probe_all(recorder: TrafficRecorder, replayer: Replayer) -> dict[str, ProbeReport]:
+    endpoints = analyze(recorder.captured)
+    if not endpoints:
+        return {}
+    console.print()
+    console.print(f"[bold]Testing {len(endpoints)} endpoint(s) with direct calls...[/]")
+    keys = endpoint_keys(recorder.captured)
+    raws = list(recorder.raw)
+    prober = Prober(replayer, on_sample=recorder.add)
+    reports: dict[str, ProbeReport] = {}
+    for ep in endpoints:
+        samples = [r for k, r in zip(keys, raws, strict=False) if k == ep.key and r]
+        report = prober.probe(ep, samples)
+        reports[ep.key] = report
+        label = ep.label if not ep.third_party else f"{ep.method} {ep.host}{ep.path_template}"
+        console.print(f"  [bold]{label}[/]")
+        for h in report.hypotheses:
+            style = RESULT_STYLE[h.result]
+            console.print(f"    [{style}]{h.result:<12}[/] {h.text}  [dim]{h.evidence}[/]")
+        if report.note:
+            console.print(f"    [dim]{report.note}[/]")
+    console.print(f"[dim]{replayer.requests_made} direct calls made[/]")
+    return reports
+
+
+def _apply(ep: Endpoint, report: ProbeReport) -> None:
+    ep.replayable = report.replayable
+    ep.auth_type = report.auth_type
+    ep.pagination = report.pagination
+    ep.required_headers = report.required_headers
+
+
+def _pagination_label(p: dict[str, Any] | None) -> str:
+    if not p:
+        return "-"
+    mark = "" if p.get("confirmed") else "?"
+    return f"{p['style']}: {p['param']}{mark}"
 
 
 def _print_summary(
@@ -240,7 +316,9 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
     table.add_column("Endpoint")
     table.add_column("Parameters")
     table.add_column("Samples", justify="right")
-    table.add_column("Status")
+    table.add_column("Callable")
+    table.add_column("Auth")
+    table.add_column("Paging")
     table.add_column("Response fields")
     for ep in endpoints:
         label = ep.label if ep.host == host else f"{ep.method} {ep.host}{ep.path_template}"
@@ -249,11 +327,17 @@ def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
             f"{p.name}: {p.type} ({p.kind}{', redacted' if p.sensitive else ''})"
             for p in ep.query_params
         ]
+        callable_ = {None: "-", True: "[green]yes[/]", False: "[red]no[/]"}[ep.replayable]
+        auth = ep.auth_type or "-"
+        if ep.required_headers:
+            auth += "\n" + "\n".join(f"needs {h}" for h in ep.required_headers)
         table.add_row(
             label,
             "\n".join(params) or "-",
             str(ep.sample_count),
-            ", ".join(map(str, ep.statuses)),
+            callable_,
+            auth,
+            _pagination_label(ep.pagination),
             top_level_fields(ep.response_schema),
         )
     return table

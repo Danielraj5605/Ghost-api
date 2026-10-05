@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -11,9 +12,10 @@ from ghost_api.agent.prompts import step_prompt
 from ghost_api.agent.tools import Decision, is_typeable
 from ghost_api.browser.driver import ActionError
 from ghost_api.browser.snapshot import Element, PageSnapshot
-from ghost_api.capture.models import CapturedRequest
+from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.llm.gateway import BudgetExceeded, LLMReply, LLMUnavailable
-from ghost_api.net import RobotsPolicy
+from ghost_api.net import RateLimiter, RobotsPolicy
+from ghost_api.probe.replay import Replayer
 
 HOST = "ex.com"
 START = "https://ex.com/"
@@ -258,3 +260,88 @@ def test_prompt_contains_the_essentials() -> None:
     for needle in ("GOAL: list books", "STEP 2 of at most 40", '[3] link "Next" -> /p?page=2',
                    "2 unsafe or off-site elements hidden", "(none yet)"):  # fmt: skip
         assert needle in text
+
+
+# --- Stage 5: call_endpoint, ask_user, bot protection ---
+
+
+def test_bot_protection_stops_before_asking_the_llm() -> None:
+    browser = FakeBrowser()
+    original = browser.snapshot
+
+    def challenge(target_host: str, robots: RobotsPolicy | None = None) -> PageSnapshot:
+        snap = original(target_host, robots)
+        snap.title, snap.text = "Just a moment...", "Checking your browser"
+        return snap
+
+    browser.snapshot = challenge  # type: ignore[method-assign]
+    llm = ScriptedLLM()
+    result = explorer(browser, llm).run()
+    assert result.status == "bot-protection"
+    assert llm.prompts == []
+
+
+def test_ask_user() -> None:
+    questions: list[str] = []
+    llm = ScriptedLLM(act("ask_user", question="Please log in"), act("finish"))
+    result = explorer(FakeBrowser(), llm, ask_user=lambda q: questions.append(q) or "done").run()
+    assert questions == ["Please log in"]
+    assert result.steps[0].result == "user answered: done"
+
+
+def test_ask_user_without_a_human() -> None:
+    llm = ScriptedLLM(act("ask_user", question="Log in?"), act("finish"))
+    result = explorer(FakeBrowser(), llm).run()
+    assert result.steps[0].result.startswith("rejected: no human is available")
+
+
+def _replayer(seen: list[httpx.Request]) -> Replayer:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"items": [{"id": 1}, {"id": 2}]})
+
+    return Replayer(
+        HOST,
+        RateLimiter(10_000),
+        RobotsPolicy.allow_all(HOST),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_call_endpoint_replays_with_changed_params() -> None:
+    browser = FakeBrowser()
+    raws: list[RawRequest | None] = []
+    browser_goto = browser.goto
+
+    def goto(url: str) -> list[CapturedRequest]:
+        out = browser_goto(url)
+        raws.extend(RawRequest("GET", r.url + "?page=1", {"accept": "*/*"}) for r in out)
+        return out
+
+    browser.goto = goto  # type: ignore[method-assign]
+    seen: list[httpx.Request] = []
+    added: list[CapturedRequest] = []
+
+    def add_sample(c: CapturedRequest, r: RawRequest) -> None:
+        added.append(c)
+        browser.traffic.append(c)
+        raws.append(r)
+
+    llm = ScriptedLLM(
+        act("call_endpoint", endpoint="GET /api/home", params={"page": "2"}),
+        act("call_endpoint", endpoint="GET /api/nope"),
+        act("finish"),
+    )
+    result = explorer(
+        browser, llm, replayer=_replayer(seen), raw_requests=lambda: raws, add_sample=add_sample
+    ).run()
+    assert result.steps[0].result == "called GET /api/home with {'page': '2'}: HTTP 200, 2 records"
+    assert "page=2" in str(seen[0].url)
+    assert len(added) == 1
+    assert result.steps[1].result.startswith("rejected: no endpoint named 'GET /api/nope'")
+
+
+def test_call_endpoint_needs_a_replayer() -> None:
+    llm = ScriptedLLM(act("call_endpoint", endpoint="GET /api/home"), act("finish"))
+    result = explorer(FakeBrowser(), llm).run()
+    assert result.steps[0].result == "rejected: calling endpoints directly is not enabled"

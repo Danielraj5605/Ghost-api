@@ -15,9 +15,13 @@ import pytest
 
 from ghost_api.agent.orchestrator import Explorer
 from ghost_api.agent.tools import Decision
+from ghost_api.analysis.analyzer import endpoint_keys
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.llm.gateway import LLMReply
+from ghost_api.net import RateLimiter, RobotsPolicy
+from ghost_api.probe.prober import Prober
+from ghost_api.probe.replay import Replayer
 
 APP = b"""<!doctype html><html><head><title>Book Finder</title></head><body><main>
 <h1>Book Finder</h1>
@@ -154,3 +158,13 @@ def test_agent_explores_spa_safely(server: str) -> None:
     # The new-tab link was followed in the same tab.
     assert "GET /about" in Handler.hits
     assert all(s.result.startswith(("1 new", "2 new", "finished")) for s in result.steps)
+
+    # Stage 5: probe the captured search endpoint over real HTTP.
+    replayer = Replayer("127.0.0.1", RateLimiter(10_000), RobotsPolicy.allow_all("127.0.0.1"))
+    keys = endpoint_keys(recorder.captured)
+    samples = [r for k, r in zip(keys, recorder.raw, strict=False) if k == search.key and r]
+    report = Prober(replayer).probe(search, samples)
+    replayer.close()
+    assert report.replayable
+    assert report.pagination is not None and report.pagination["confirmed"]
+    assert report.auth_type == "none"

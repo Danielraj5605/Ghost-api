@@ -7,9 +7,13 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ghost_api.analysis.models import Endpoint, PathParam, QueryParam
 from ghost_api.capture.models import CapturedRequest
+
+if TYPE_CHECKING:
+    from ghost_api.probe.prober import ProbeReport
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -83,6 +87,16 @@ CREATE TABLE IF NOT EXISTS agent_steps (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS hypotheses (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       INTEGER NOT NULL REFERENCES runs(id),
+    endpoint_key TEXT NOT NULL,
+    text         TEXT NOT NULL,
+    result       TEXT NOT NULL CHECK (result IN ('confirmed', 'rejected', 'inconclusive')),
+    evidence     TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_cache (
     prompt_hash TEXT PRIMARY KEY,
     provider    TEXT NOT NULL,
@@ -100,6 +114,8 @@ CREATE INDEX IF NOT EXISTS idx_runs_domain ON runs(domain);
 MIGRATIONS = (
     ("requests", "third_party", "INTEGER NOT NULL DEFAULT 0"),
     ("endpoints", "third_party", "INTEGER NOT NULL DEFAULT 0"),
+    ("endpoints", "required_headers", "TEXT NOT NULL DEFAULT '[]'"),
+    ("endpoints", "replayable", "INTEGER"),
 )
 
 
@@ -320,9 +336,50 @@ class Store:
                     statuses=json.loads(r["statuses"]),
                     example_urls=json.loads(r["example_urls"]),
                     third_party=bool(r["third_party"]),
+                    replayable=None if r["replayable"] is None else bool(r["replayable"]),
+                    auth_type=r["auth_type"],
+                    pagination=json.loads(r["pagination"]) if r["pagination"] else None,
+                    required_headers=json.loads(r["required_headers"]),
                 )
             )
         return out
+
+    # --- probe results ---
+
+    def save_probe_report(
+        self, domain: str, run_id: int, endpoint: Endpoint, report: ProbeReport
+    ) -> None:
+        self.conn.execute(
+            """UPDATE endpoints SET replayable = ?, auth_type = ?, pagination = ?,
+                   required_headers = ?, updated_at = ?
+               WHERE domain = ? AND method = ? AND host = ? AND url_template = ?""",
+            (
+                int(report.replayable),
+                report.auth_type,
+                json.dumps(report.pagination) if report.pagination else None,
+                json.dumps(report.required_headers),
+                _now(),
+                domain,
+                endpoint.method,
+                endpoint.host,
+                endpoint.path_template,
+            ),
+        )
+        for h in report.hypotheses:
+            self.conn.execute(
+                """INSERT INTO hypotheses (run_id, endpoint_key, text, result, evidence, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (run_id, h.endpoint, h.text, h.result, h.evidence, _now()),
+            )
+        self.conn.commit()
+
+    def hypotheses_for_run(self, run_id: int) -> list[dict[str, object]]:
+        rows = self.conn.execute(
+            "SELECT endpoint_key, text, result, evidence FROM hypotheses WHERE run_id = ?"
+            " ORDER BY id",
+            (run_id,),
+        )
+        return [dict(r) for r in rows]
 
     # --- agent steps ---
 

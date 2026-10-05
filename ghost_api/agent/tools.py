@@ -11,7 +11,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-ActionName = Literal["click", "type", "scroll", "navigate", "go_back", "finish"]
+ActionName = Literal[
+    "click", "type", "scroll", "navigate", "go_back", "call_endpoint", "ask_user", "finish"
+]
 
 MAX_TYPED_CHARS = 200
 
@@ -26,6 +28,13 @@ class Decision(BaseModel):
         None, description="For scroll. 'bottom' jumps to the end of the page."
     )
     url: str | None = Field(None, description="Required for navigate: a URL on this site.")
+    endpoint: str | None = Field(
+        None, description="Required for call_endpoint: an endpoint exactly as listed."
+    )
+    params: dict[str, str] | None = Field(
+        None, description='For call_endpoint: parameters to change, e.g. {"page": "2"}.'
+    )
+    question: str | None = Field(None, description="Required for ask_user.")
     goal_covered: bool = Field(
         False, description="True only if the endpoints found so far cover every part of the goal."
     )
@@ -42,6 +51,10 @@ class Decision(BaseModel):
                 raise ValueError(f"text must be at most {MAX_TYPED_CHARS} characters")
         if self.action == "navigate" and not self.url:
             raise ValueError("'navigate' needs url")
+        if self.action == "call_endpoint" and not self.endpoint:
+            raise ValueError("'call_endpoint' needs endpoint")
+        if self.action == "ask_user" and not self.question:
+            raise ValueError("'ask_user' needs question")
         return self
 
     def args(self) -> dict[str, object]:
@@ -52,6 +65,8 @@ class Decision(BaseModel):
             "scroll": ("direction",),
             "navigate": ("url",),
             "go_back": (),
+            "call_endpoint": ("endpoint", "params"),
+            "ask_user": ("question",),
             "finish": ("goal_covered", "missing"),
         }[self.action]
         return {k: getattr(self, k) for k in keys}

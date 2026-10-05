@@ -58,6 +58,12 @@ def analyze(requests: list[CapturedRequest]) -> list[Endpoint]:
     return endpoints
 
 
+def endpoint_keys(requests: list[CapturedRequest]) -> list[str]:
+    """The Endpoint.key each request belongs to (same grouping as analyze())."""
+    matches = group_urls([(r.method, r.url) for r in requests])
+    return [f"{m.method} {m.host}{m.template}" for m in matches]
+
+
 def classify_query_params(urls: list[str]) -> list[QueryParam]:
     """Classify each query parameter as required, optional or constant (FR-18)."""
     total = len(urls)

@@ -11,6 +11,7 @@ Stopping rules (any one ends the loop):
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,14 +21,22 @@ from urllib.parse import urljoin, urlsplit
 
 from ghost_api.agent.prompts import SYSTEM_PROMPT, HistoryItem, step_prompt
 from ghost_api.agent.tools import Decision, is_typeable
-from ghost_api.analysis.analyzer import analyze
+from ghost_api.analysis.analyzer import analyze, endpoint_keys
+from ghost_api.analysis.detectors import find_items, is_bot_challenge
 from ghost_api.analysis.models import Endpoint
 from ghost_api.browser.driver import ActionError
 from ghost_api.browser.snapshot import PageSnapshot
-from ghost_api.capture.filters import is_same_site
-from ghost_api.capture.models import CapturedRequest
+from ghost_api.capture.filters import is_same_site, redact_text
+from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.llm.gateway import BudgetExceeded, LLMReply, LLMUnavailable
 from ghost_api.net import RobotsPolicy
+from ghost_api.probe.replay import (
+    Replayer,
+    ReplayRefused,
+    is_replayable,
+    with_overrides,
+    with_path_params,
+)
 
 NO_PROGRESS_STEPS = 8
 
@@ -71,7 +80,7 @@ class StepRecord:
 @dataclass
 class AgentResult:
     status: str  # goal-covered | finished | max-steps | no-progress | time-limit |
-    #              llm-budget | llm-unavailable | interrupted
+    #              llm-budget | llm-unavailable | bot-protection | interrupted
     reason: str
     steps: list[StepRecord]
     endpoints: list[Endpoint]
@@ -91,6 +100,10 @@ class Explorer:
         robots: RobotsPolicy | None = None,
         on_step: Callable[[StepRecord], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        replayer: Replayer | None = None,
+        raw_requests: Callable[[], list[RawRequest | None]] | None = None,
+        add_sample: Callable[[CapturedRequest, RawRequest], object] | None = None,
+        ask_user: Callable[[str], str] | None = None,
     ) -> None:
         self.browser = browser
         self.llm = llm
@@ -103,6 +116,10 @@ class Explorer:
         self.robots = robots
         self.on_step = on_step
         self.clock = clock
+        self.replayer = replayer
+        self.raw_requests = raw_requests
+        self.add_sample = add_sample
+        self.ask_user = ask_user
         self.steps: list[StepRecord] = []
         self.history: list[HistoryItem] = []
 
@@ -118,6 +135,11 @@ class Explorer:
                 if self.clock() - started > self.deadline_s:
                     return self._result("time-limit", "time limit reached")
                 snapshot = self.browser.snapshot(self.host, self.robots)
+                if is_bot_challenge(snapshot.title, snapshot.text):
+                    # Never try to get past bot protection (NFR-19).
+                    return self._result(
+                        "bot-protection", f"bot-protection page detected: {snapshot.title!r}"
+                    )
                 try:
                     decision = self._decide(step, snapshot)
                 except BudgetExceeded as exc:
@@ -170,6 +192,10 @@ class Explorer:
         self, decision: Decision, snapshot: PageSnapshot
     ) -> tuple[str, list[CapturedRequest]]:
         """Run one action. Returns a short result for the agent and the new requests."""
+        if decision.action == "call_endpoint":
+            return self._call_endpoint(decision)
+        if decision.action == "ask_user":
+            return self._ask(decision), []
         try:
             new = self._dispatch(decision, snapshot)
         except _Rejected as exc:
@@ -213,6 +239,52 @@ class Explorer:
             return self.browser.go_back()
         raise _Rejected(f"unknown action {d.action}")
 
+    def _call_endpoint(self, d: Decision) -> tuple[str, list[CapturedRequest]]:
+        if self.replayer is None or self.raw_requests is None:
+            return "rejected: calling endpoints directly is not enabled", []
+        endpoints = self._endpoints()
+        target = _find_endpoint(d.endpoint or "", endpoints, self.host)
+        if target is None:
+            return f"rejected: no endpoint named {d.endpoint!r}; use a name as listed", []
+        keys = endpoint_keys(self.captured())
+        raws = self.raw_requests()
+        samples = [r for k, r in zip(keys, raws, strict=False) if k == target.key and r]
+        sample = next((s for s in reversed(samples) if is_replayable(s)), None)
+        if sample is None:
+            return "rejected: this endpoint can't be called safely (not a read-only request)", []
+        # Each parameter goes where the endpoint expects it: path, JSON body or query.
+        params = d.params or {}
+        path_names = {p.name for p in target.path_params}
+        body_keys = _body_keys(sample) - path_names
+        path = {k: v for k, v in params.items() if k in path_names}
+        body = {k: _typed(v) for k, v in params.items() if k in body_keys}
+        query: dict[str, str | None] = {
+            k: v for k, v in params.items() if k not in path_names and k not in body_keys
+        }
+        request = with_path_params(sample, target.path_template, path)
+        request = with_overrides(request, query=query or None, body=body or None)
+        try:
+            result = self.replayer.send(request)
+        except ReplayRefused as exc:
+            return f"rejected: {exc}", []
+        if result.captured is None:
+            return f"failed: {result.error}", []
+        if self.add_sample:
+            self.add_sample(result.captured, request)
+        items = find_items(result.body) if result.ok else None
+        summary = f"HTTP {result.status}"
+        if result.error:
+            summary += f", {result.error}"
+        elif items is not None:
+            summary += f", {len(items)} records"
+        return f"called {target.label} with {params}: {summary}", [result.captured]
+
+    def _ask(self, d: Decision) -> str:
+        if self.ask_user is None:
+            return "rejected: no human is available (run with --headed in a terminal)"
+        answer = self.ask_user(d.question or "")
+        return f"user answered: {redact_text(answer)[:200] or '(no answer)'}"
+
     def _allowed_url(self, url: str) -> bool:
         if urlsplit(url).scheme not in ("http", "https") or not is_same_site(url, self.host):
             return False
@@ -249,6 +321,32 @@ class Explorer:
 
 class _Rejected(Exception):
     pass
+
+
+def _find_endpoint(name: str, endpoints: list[Endpoint], host: str) -> Endpoint | None:
+    """Match 'GET /api/x', 'GET host/api/x' or the prompt's '... [third-party: host]'."""
+    wanted = " ".join(name.split("[", 1)[0].split()).lower()
+    for ep in endpoints:
+        names = {ep.label.lower(), f"{ep.method} {ep.host}{ep.path_template}".lower()}
+        if wanted in names:
+            return ep
+    return None
+
+
+def _body_keys(raw: RawRequest) -> set[str]:
+    try:
+        data = json.loads(raw.body or "")
+    except ValueError:
+        return set()
+    return set(data) if isinstance(data, dict) else set()
+
+
+def _typed(value: str) -> object:
+    """'2' -> 2 and 'true' -> True for JSON bodies; anything else stays a string."""
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
 
 
 def _describe(new: list[CapturedRequest], url: str, notes: list[str]) -> str:

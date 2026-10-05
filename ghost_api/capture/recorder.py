@@ -15,7 +15,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, Response
 
 from ghost_api.capture import filters
-from ghost_api.capture.models import CapturedRequest
+from ghost_api.capture.models import CapturedRequest, RawRequest
 
 MAX_BODY_CHARS = 500_000
 
@@ -29,6 +29,8 @@ class TrafficRecorder:
         self.target_host = target_host
         self.on_capture = on_capture
         self.captured: list[CapturedRequest] = []
+        # raw[i] is the unredacted original of captured[i] (memory only, for replaying).
+        self.raw: list[RawRequest | None] = []
         self.dropped: Counter[str] = Counter()
         self._pending: list[Response] = []
 
@@ -51,16 +53,21 @@ class TrafficRecorder:
         new: list[CapturedRequest] = []
         pending, self._pending = self._pending, []
         for response in pending:
-            item = self._build(response)
-            if item is None:
+            built = self._build(response)
+            if built is None:
                 continue
-            new.append(item)
-            self.captured.append(item)
-            if self.on_capture:
-                self.on_capture(item)
+            new.append(self.add(*built))
         return new
 
-    def _build(self, response: Response) -> CapturedRequest | None:
+    def add(self, item: CapturedRequest, raw: RawRequest | None = None) -> CapturedRequest:
+        """Record a request (from the browser, or a replay made by the prober)."""
+        self.captured.append(item)
+        self.raw.append(raw)
+        if self.on_capture:
+            self.on_capture(item)
+        return item
+
+    def _build(self, response: Response) -> tuple[CapturedRequest, RawRequest] | None:
         request = response.request
         try:
             resp_headers = response.all_headers()
@@ -83,7 +90,8 @@ class TrafficRecorder:
             safe_body = safe_body[:MAX_BODY_CHARS]
 
         req_ctype = req_headers.get("content-type")
-        return CapturedRequest(
+        raw = RawRequest(request.method, request.url, dict(req_headers), request.post_data)
+        captured = CapturedRequest(
             method=request.method,
             url=filters.redact_url(request.url),
             status=response.status,
@@ -96,6 +104,7 @@ class TrafficRecorder:
             truncated=truncated,
             third_party=filters.is_third_party(request.url, self.target_host),
         )
+        return captured, raw
 
 
 def _looks_like_json(body: str) -> bool:

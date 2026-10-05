@@ -32,6 +32,10 @@ Rules:
 - Check the "returns" fields of the endpoints found so far before exploring more: a goal
   part is covered when an endpoint already returns that data, even nested (for example
   quotes[].author.name covers "authors").
+- Use call_endpoint to test an idea directly, without the page: another search term,
+  the next page, a different filter value. It returns the status and record count.
+- If the goal needs a logged-in user and the page shows a login form, use ask_user to
+  ask the human to log in in the browser window. Never type passwords yourself.
 - When every part of the goal is covered, set goal_covered to true and use "finish".
   Also use "finish" if the site clearly has no JSON API for the goal.
 
@@ -41,6 +45,8 @@ Actions:
 - scroll: direction ("down", "up" or "bottom")
 - navigate: url (same site only)
 - go_back
+- call_endpoint: endpoint (exactly as listed under ENDPOINTS), params ({"name": "value"})
+- ask_user: question
 - finish"""
 
 
@@ -95,6 +101,8 @@ def format_page(snapshot: PageSnapshot) -> str:
         notes.append(f"{snapshot.hidden} more elements not shown; scroll to see others")
     if snapshot.blocked:
         notes.append(f"{snapshot.blocked} unsafe or off-site elements hidden")
+    if snapshot.has_password_field:
+        notes.append("this page has a login form (password field hidden)")
     if notes:
         lines.append(f"  ({'; '.join(notes)})")
     return "\n".join(lines)
