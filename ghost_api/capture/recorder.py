@@ -1,0 +1,108 @@
+"""Record API traffic from a Playwright page (FR-13, FR-14).
+
+The 'response' event handler only queues responses; bodies are read later in `flush()`,
+which the browser driver calls after every action. Reading bodies outside the event
+handler keeps the sync Playwright API safe from re-entrancy problems.
+"""
+
+from __future__ import annotations
+
+import json
+from collections import Counter
+from collections.abc import Callable
+
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page, Response
+
+from ghost_api.capture import filters
+from ghost_api.capture.models import CapturedRequest
+
+MAX_BODY_CHARS = 500_000
+
+
+class TrafficRecorder:
+    def __init__(
+        self,
+        target_host: str,
+        on_capture: Callable[[CapturedRequest], None] | None = None,
+    ) -> None:
+        self.target_host = target_host
+        self.on_capture = on_capture
+        self.captured: list[CapturedRequest] = []
+        self.dropped: Counter[str] = Counter()
+        self._pending: list[Response] = []
+
+    def attach(self, page: Page) -> None:
+        page.on("response", self._on_response)
+
+    def _on_response(self, response: Response) -> None:
+        request = response.request
+        reason = filters.classify(request.resource_type, request.url, self.target_host)
+        if reason:
+            self.dropped[reason] += 1
+            return
+        if 300 <= response.status < 400:
+            self.dropped["redirect"] += 1
+            return
+        self._pending.append(response)
+
+    def flush(self) -> list[CapturedRequest]:
+        """Read bodies of queued responses, keep JSON ones, redact, and store them."""
+        new: list[CapturedRequest] = []
+        pending, self._pending = self._pending, []
+        for response in pending:
+            item = self._build(response)
+            if item is None:
+                continue
+            new.append(item)
+            self.captured.append(item)
+            if self.on_capture:
+                self.on_capture(item)
+        return new
+
+    def _build(self, response: Response) -> CapturedRequest | None:
+        request = response.request
+        try:
+            resp_headers = response.all_headers()
+            req_headers = request.all_headers()
+            body = response.text()
+        except PlaywrightError:
+            # Body is gone (page navigated away, request aborted, ...).
+            self.dropped["no-body"] += 1
+            return None
+
+        resp_ctype = resp_headers.get("content-type")
+        if not filters.is_json_content_type(resp_ctype) and not _looks_like_json(body):
+            self.dropped["non-json"] += 1
+            return None
+
+        # Redact the full body first: truncated JSON can't be parsed for key-based redaction.
+        safe_body = filters.redact_body(body, resp_ctype) or ""
+        truncated = len(safe_body) > MAX_BODY_CHARS
+        if truncated:
+            safe_body = safe_body[:MAX_BODY_CHARS]
+
+        req_ctype = req_headers.get("content-type")
+        return CapturedRequest(
+            method=request.method,
+            url=filters.redact_url(request.url),
+            status=response.status,
+            resource_type=request.resource_type,
+            req_headers=filters.redact_headers(req_headers),
+            req_body=filters.redact_body(request.post_data, req_ctype),
+            req_content_type=req_ctype,
+            resp_content_type=resp_ctype,
+            resp_body=safe_body,
+            truncated=truncated,
+        )
+
+
+def _looks_like_json(body: str) -> bool:
+    stripped = body.lstrip()
+    if stripped[:1] not in ("{", "["):
+        return False
+    try:
+        json.loads(stripped)
+    except ValueError:
+        return False
+    return True
