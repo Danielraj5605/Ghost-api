@@ -50,6 +50,12 @@ NOISE_DOMAINS = (
     "ads-twitter.com",
 )
 
+# Subdomains that carry tracking or monitoring, even on the target's own domain.
+NOISE_SUBDOMAINS = {
+    "telemetry", "analytics", "metrics", "stats", "tracking", "track", "log", "logs", "rum",
+    "beacon", "pixel", "collector", "sentry",
+}  # fmt: skip
+
 # Second-level public suffixes, so "shop.example.co.uk" maps to "example.co.uk".
 _TWO_PART_SUFFIXES = {
     "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.in", "net.in",
@@ -98,6 +104,8 @@ def is_same_site(url: str, target_host: str) -> bool:
 
 def is_noise_domain(url: str) -> bool:
     host = (urlsplit(url).hostname or "").lower()
+    if host.split(".", 1)[0] in NOISE_SUBDOMAINS:
+        return True
     return any(host == d or host.endswith("." + d) for d in NOISE_DOMAINS)
 
 
@@ -109,7 +117,7 @@ def classify(resource_type: str, url: str, target_host: str) -> str | None:
     """Return None if this request should be kept, otherwise the reason it was dropped."""
     if resource_type not in API_RESOURCE_TYPES:
         return f"resource:{resource_type}"
-    if is_noise_domain(url) and not is_same_site(url, target_host):
+    if is_noise_domain(url):
         return "analytics"
     if not is_same_site(url, target_host):
         return "off-site"

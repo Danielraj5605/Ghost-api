@@ -37,6 +37,8 @@ def test_classify_keeps_same_site_fetch() -> None:
         ("xhr", "https://o123.ingest.sentry.io/api/1/envelope/", "analytics"),
         ("fetch", "https://cdn.other-site.com/data.json", "off-site"),
         ("fetch", "https://example.com/collect?event=view", "analytics"),
+        ("fetch", "https://telemetry.example.com/1/settings", "analytics"),
+        ("xhr", "https://metrics.example.com/v1/batch", "analytics"),
     ],
 )
 def test_classify_drops_noise(resource_type: str, url: str, reason: str) -> None:

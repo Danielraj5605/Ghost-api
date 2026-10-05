@@ -1,13 +1,14 @@
-"""SQLite storage for runs and captured traffic. Later stages add more tables here."""
+"""SQLite storage for runs, captured traffic and the endpoint map."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ghost_api.analysis.models import Endpoint, PathParam, QueryParam
 from ghost_api.capture.models import CapturedRequest
 
 SCHEMA = """
@@ -37,6 +38,35 @@ CREATE TABLE IF NOT EXISTS requests (
     resp_body         TEXT,
     truncated         INTEGER NOT NULL DEFAULT 0,
     timestamp         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS endpoints (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain         TEXT NOT NULL,
+    method         TEXT NOT NULL,
+    host           TEXT NOT NULL,
+    url_template   TEXT NOT NULL,
+    name           TEXT,
+    description    TEXT,
+    auth_type      TEXT,
+    pagination     TEXT,
+    status         TEXT NOT NULL DEFAULT 'discovered',
+    path_params    TEXT NOT NULL DEFAULT '[]',
+    query_params   TEXT NOT NULL DEFAULT '[]',
+    sample_count   INTEGER NOT NULL DEFAULT 0,
+    statuses       TEXT NOT NULL DEFAULT '[]',
+    example_urls   TEXT NOT NULL DEFAULT '[]',
+    last_run_id    INTEGER REFERENCES runs(id),
+    updated_at     TEXT NOT NULL,
+    UNIQUE (domain, method, host, url_template)
+);
+
+CREATE TABLE IF NOT EXISTS schemas (
+    endpoint_id  INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL CHECK (kind IN ('request', 'response')),
+    json_schema  TEXT NOT NULL,
+    sample_count INTEGER NOT NULL,
+    PRIMARY KEY (endpoint_id, kind)
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_run ON requests(run_id);
@@ -160,3 +190,85 @@ class Store:
             )
             for r in rows
         ]
+
+    # --- endpoints ---
+
+    def save_endpoints(self, domain: str, run_id: int, endpoints: list[Endpoint]) -> None:
+        """Insert or update endpoints. Fields set by later stages (name, auth...) are kept."""
+        for ep in endpoints:
+            values = (
+                json.dumps([asdict(p) for p in ep.path_params]),
+                json.dumps([asdict(p) for p in ep.query_params]),
+                ep.sample_count,
+                json.dumps(ep.statuses),
+                json.dumps(ep.example_urls),
+                run_id,
+                _now(),
+            )
+            self.conn.execute(
+                """INSERT INTO endpoints (path_params, query_params, sample_count, statuses,
+                       example_urls, last_run_id, updated_at, domain, method, host, url_template)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (domain, method, host, url_template) DO UPDATE SET
+                       path_params = excluded.path_params,
+                       query_params = excluded.query_params,
+                       sample_count = excluded.sample_count,
+                       statuses = excluded.statuses,
+                       example_urls = excluded.example_urls,
+                       last_run_id = excluded.last_run_id,
+                       updated_at = excluded.updated_at""",
+                (*values, domain, ep.method, ep.host, ep.path_template),
+            )
+            (endpoint_id,) = self.conn.execute(
+                "SELECT id FROM endpoints WHERE domain = ? AND method = ? AND host = ?"
+                " AND url_template = ?",
+                (domain, ep.method, ep.host, ep.path_template),
+            ).fetchone()
+            for kind, schema, count in (
+                ("request", ep.request_schema, ep.request_samples),
+                ("response", ep.response_schema, ep.response_samples),
+            ):
+                if schema is None:
+                    continue
+                self.conn.execute(
+                    """INSERT INTO schemas (endpoint_id, kind, json_schema, sample_count)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT (endpoint_id, kind) DO UPDATE SET
+                           json_schema = excluded.json_schema,
+                           sample_count = excluded.sample_count""",
+                    (endpoint_id, kind, json.dumps(schema), count),
+                )
+        self.conn.commit()
+
+    def load_endpoints(self, domain: str) -> list[Endpoint]:
+        rows = self.conn.execute(
+            "SELECT * FROM endpoints WHERE domain = ? ORDER BY host, url_template, method",
+            (domain,),
+        ).fetchall()
+        out: list[Endpoint] = []
+        for r in rows:
+            schemas = {
+                s["kind"]: (json.loads(s["json_schema"]), s["sample_count"])
+                for s in self.conn.execute(
+                    "SELECT * FROM schemas WHERE endpoint_id = ?", (r["id"],)
+                )
+            }
+            request = schemas.get("request")
+            response = schemas.get("response")
+            out.append(
+                Endpoint(
+                    method=r["method"],
+                    host=r["host"],
+                    path_template=r["url_template"],
+                    path_params=[PathParam(**p) for p in json.loads(r["path_params"])],
+                    query_params=[QueryParam(**p) for p in json.loads(r["query_params"])],
+                    request_schema=request[0] if request else None,
+                    response_schema=response[0] if response else None,
+                    sample_count=r["sample_count"],
+                    request_samples=request[1] if request else 0,
+                    response_samples=response[1] if response else 0,
+                    statuses=json.loads(r["statuses"]),
+                    example_urls=json.loads(r["example_urls"]),
+                )
+            )
+        return out

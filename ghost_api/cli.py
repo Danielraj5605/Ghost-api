@@ -12,6 +12,9 @@ from rich.console import Console
 from rich.table import Table
 
 from ghost_api import __version__
+from ghost_api.analysis.analyzer import analyze
+from ghost_api.analysis.models import Endpoint
+from ghost_api.analysis.schema import top_level_fields
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
@@ -142,22 +145,21 @@ def run(
         finally:
             store.finish_run(run_id, status)
 
-        _print_summary(recorder, time.monotonic() - started, run_id, settings.db_path)
+        # Stage 4 of the workflow (learn): turn traffic into an endpoint map.
+        endpoints = analyze(recorder.captured)
+        store.save_endpoints(host, run_id, endpoints)
+        _print_summary(recorder, endpoints, host, time.monotonic() - started, run_id)
+        console.print(f"[dim]Saved to {settings.db_path}[/]")
     if status == "failed":
         raise typer.Exit(code=1)
 
 
-def _print_summary(recorder: TrafficRecorder, seconds: float, run_id: int, db: Path) -> None:
-    captured = recorder.captured
+def _print_summary(
+    recorder: TrafficRecorder, endpoints: list[Endpoint], host: str, seconds: float, run_id: int
+) -> None:
     console.print()
-    if captured:
-        table = Table(title=f"Captured API requests ({len(captured)})")
-        table.add_column("Method")
-        table.add_column("Status", justify="right")
-        table.add_column("URL")
-        for req in captured:
-            table.add_row(req.method, str(req.status), _short(req.url, 90))
-        console.print(table)
+    if endpoints:
+        console.print(_endpoint_table(endpoints, host))
     else:
         console.print(
             "[yellow]No JSON API requests captured.[/] The site may render on the server."
@@ -165,7 +167,34 @@ def _print_summary(recorder: TrafficRecorder, seconds: float, run_id: int, db: P
     if recorder.dropped:
         noise = ", ".join(f"{k}: {v}" for k, v in recorder.dropped.most_common())
         console.print(f"[dim]Filtered out: {noise}[/]")
-    console.print(f"[dim]Run #{run_id} saved to {db} in {seconds:.1f}s[/]")
+    console.print(
+        f"[dim]Run #{run_id}: {len(recorder.captured)} requests -> "
+        f"{len(endpoints)} endpoint{'' if len(endpoints) == 1 else 's'} in {seconds:.1f}s[/]"
+    )
+
+
+def _endpoint_table(endpoints: list[Endpoint], host: str) -> Table:
+    table = Table(title=f"Endpoints ({len(endpoints)})")
+    table.add_column("Endpoint")
+    table.add_column("Parameters")
+    table.add_column("Samples", justify="right")
+    table.add_column("Status")
+    table.add_column("Response fields")
+    for ep in endpoints:
+        label = ep.label if ep.host == host else f"{ep.method} {ep.host}{ep.path_template}"
+        params = [f"{p.name}: {p.type} (path)" for p in ep.path_params]
+        params += [
+            f"{p.name}: {p.type} ({p.kind}{', redacted' if p.sensitive else ''})"
+            for p in ep.query_params
+        ]
+        table.add_row(
+            label,
+            "\n".join(params) or "-",
+            str(ep.sample_count),
+            ", ".join(map(str, ep.statuses)),
+            top_level_fields(ep.response_schema),
+        )
+    return table
 
 
 @app.command()
@@ -187,6 +216,7 @@ def inspect(
         raise typer.Exit(code=1)
     with Store(path) as store:
         runs = store.list_runs(domain)
+        endpoints = store.load_endpoints(domain) if domain else []
     if not runs:
         console.print("No runs found.")
         return
@@ -196,3 +226,8 @@ def inspect(
     for r in runs:
         table.add_row(str(r.id), r.domain, r.goal, r.status, str(r.request_count), r.started_at)
     console.print(table)
+    if domain:
+        if endpoints:
+            console.print(_endpoint_table(endpoints, domain))
+        else:
+            console.print("No endpoints stored for this domain.")

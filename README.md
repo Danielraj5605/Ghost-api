@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
 
-> **Status:** In development. Stages 0–1 are done: `ghost-api run` opens a site in a real browser and captures its filtered, redacted API traffic into SQLite. The AI agent, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
+> **Status:** In development. Stages 0–2 are done: `ghost-api run` opens a site in a real browser, captures its filtered, redacted API traffic, and turns it into an endpoint map (URL templates, parameters and JSON schemas) stored in SQLite. The AI agent, code generation and memory come in later stages, so parts of this README still describe the intended design. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the stage-by-stage plan.
 
 ---
 
@@ -446,7 +446,7 @@ Check a site's terms of service before generating a client for it. For demos and
 |---|---|---|
 | 0 | Project setup | Done |
 | 1 | Traffic capture | Done |
-| 2 | API analysis (URL grouping, schemas) | Planned |
+| 2 | API analysis (URL grouping, schemas) | Done |
 | 3 | LLM gateway (fallback + cache) | Planned |
 | 4 | Agent exploration loop | Planned |
 | 5 | Hypothesis testing | Planned |

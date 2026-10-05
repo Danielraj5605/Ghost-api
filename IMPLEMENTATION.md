@@ -568,12 +568,12 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 **Goal:** turn raw traffic into an endpoint map, without any LLM.
 
 **Tasks**
-- [ ] `analysis/url_grouping.py`: detect variable path segments (numbers, UUIDs, slugs that vary across samples) and build templates
-- [ ] Classify query parameters as constant (same in every sample), variable or optional
-- [ ] `analysis/schema.py`: use genson to build and merge JSON schemas; track sample counts
-- [ ] Mark fields that are missing in some samples as optional
-- [ ] Create the `endpoints` and `schemas` tables
-- [ ] Unit tests with hand-written traffic fixtures
+- [x] `analysis/url_grouping.py`: detect variable path segments (numbers, UUIDs, slugs that vary across samples) and build templates
+- [x] Classify query parameters as constant (same in every sample), variable or optional
+- [x] `analysis/schema.py`: use genson to build and merge JSON schemas; track sample counts
+- [x] Mark fields that are missing in some samples as optional
+- [x] Create the `endpoints` and `schemas` tables
+- [x] Unit tests with hand-written traffic fixtures
 
 **Deliverable:** a function that turns stored traffic into a printed endpoint table.
 
