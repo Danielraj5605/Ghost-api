@@ -75,6 +75,8 @@ class StepRecord:
     result: str
     new_endpoints: list[str] = field(default_factory=list)
     requests: int = 0
+    screenshot: str | None = None  # name of the screenshot taken after this step
+    box: dict[str, float] | None = None  # the element clicked or typed into
 
 
 @dataclass
@@ -105,6 +107,7 @@ class Explorer:
         add_sample: Callable[[CapturedRequest, RawRequest], object] | None = None,
         ask_user: Callable[[str], str] | None = None,
         memory: str = "",
+        screenshot: Callable[[str], str | None] | None = None,
     ) -> None:
         self.browser = browser
         self.llm = llm
@@ -122,6 +125,8 @@ class Explorer:
         self.add_sample = add_sample
         self.ask_user = ask_user
         self.memory = memory  # notes from earlier runs on this site (Stage 8)
+        # Saves a screenshot under the given name and returns it (for the live view).
+        self.screenshot = screenshot
         self.steps: list[StepRecord] = []
         self.history: list[HistoryItem] = []
 
@@ -131,6 +136,7 @@ class Explorer:
         started = self.clock()
         try:
             self.browser.goto(self.start_url)
+            self._shoot("start")
             known = {e.key for e in self._endpoints()}
             since_progress = 0
             for step in range(1, self.max_steps + 1):
@@ -154,11 +160,13 @@ class Explorer:
                     status = "goal-covered" if decision.goal_covered else "finished"
                     return self._result(status, decision.thought)
 
+                box = self._box(decision)
                 result, new_requests = self._execute(decision, snapshot)
                 endpoints = self._endpoints()
                 new = [self._label(e) for e in endpoints if e.key not in known]
                 known |= {e.key for e in endpoints}
-                self._record(step, decision, result, new, len(new_requests))
+                shot = self._shoot(f"step-{step}")
+                self._record(step, decision, result, new, len(new_requests), shot, box)
 
                 since_progress = 0 if new else since_progress + 1
                 if since_progress >= NO_PROGRESS_STEPS:
@@ -307,12 +315,39 @@ class Explorer:
     def _endpoints(self) -> list[Endpoint]:
         return analyze(self.captured())
 
+    def _shoot(self, name: str) -> str | None:
+        if self.screenshot is None:
+            return None
+        try:
+            return self.screenshot(name)
+        except Exception:  # noqa: BLE001 - a missing screenshot must not stop the run
+            return None
+
+    def _box(self, d: Decision) -> dict[str, float] | None:
+        locate = getattr(self.browser, "element_box", None)
+        if d.action not in ("click", "type") or d.element_id is None or locate is None:
+            return None
+        try:
+            box: dict[str, float] | None = locate(d.element_id)
+        except Exception:  # noqa: BLE001
+            return None
+        return box
+
     def _record(
-        self, step: int, d: Decision, result: str, new_endpoints: list[str], requests: int
+        self,
+        step: int,
+        d: Decision,
+        result: str,
+        new_endpoints: list[str],
+        requests: int,
+        screenshot: str | None = None,
+        box: dict[str, float] | None = None,
     ) -> None:
         if new_endpoints:
             result += f"; NEW ENDPOINT: {', '.join(new_endpoints)}"
-        rec = StepRecord(step, d.thought, d.action, d.args(), result, new_endpoints, requests)
+        rec = StepRecord(
+            step, d.thought, d.action, d.args(), result, new_endpoints, requests, screenshot, box
+        )
         self.steps.append(rec)
         self.history.append(HistoryItem(step, d.action, d.args(), result))
         if self.on_step:

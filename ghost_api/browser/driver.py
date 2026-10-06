@@ -7,6 +7,7 @@ flushes the traffic recorder so response bodies are read before the next action.
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from types import TracebackType
 from urllib.parse import urlsplit
 
@@ -133,6 +134,35 @@ class BrowserSession:
     def snapshot(self, target_host: str, robots: RobotsPolicy | None = None) -> PageSnapshot:
         raw = self.page.evaluate(SNAPSHOT_JS, SNAPSHOT_ARGS)
         return build_snapshot(raw, target_host, robots)
+
+    def screenshot(self, path: Path) -> bool:
+        """Save a small JPEG of what the browser shows (for the dashboard's live view)."""
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(path), type="jpeg", quality=55)
+        except PlaywrightError:
+            return False
+        return True
+
+    def element_box(self, element_id: int) -> dict[str, float] | None:
+        """Where an element is on the page (viewport pixels), before acting on it."""
+        try:
+            box = self.page.locator(f'[data-ghost-id="{element_id}"]').first.bounding_box(
+                timeout=1_000
+            )
+        except PlaywrightError:
+            return None
+        if box is None:
+            return None
+        viewport = self.page.viewport_size or {"width": 1280, "height": 720}
+        return {
+            "x": box["x"],
+            "y": box["y"],
+            "width": box["width"],
+            "height": box["height"],
+            "viewport_width": viewport["width"],
+            "viewport_height": viewport["height"],
+        }
 
     def _element(self, element_id: int):  # type: ignore[no-untyped-def]
         loc = self.page.locator(f'[data-ghost-id="{element_id}"]').first

@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ghost_api.analysis.models import Endpoint, PathParam, QueryParam
 from ghost_api.capture.models import CapturedRequest
@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     result       TEXT NOT NULL CHECK (result IN ('confirmed', 'rejected', 'inconclusive')),
     evidence     TEXT NOT NULL,
     created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    run_id  INTEGER NOT NULL REFERENCES runs(id),
+    seq     INTEGER NOT NULL,
+    type    TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    at      TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq)
 );
 
 CREATE TABLE IF NOT EXISTS lessons (
@@ -466,6 +475,27 @@ class Store:
             "SELECT * FROM agent_steps WHERE run_id = ? ORDER BY step_no", (run_id,)
         )
         return [{**dict(r), "args": json.loads(r["args"])} for r in rows]
+
+    # --- run events (everything a run showed, for replay in the dashboard) ---
+
+    def add_event(self, run_id: int, event: dict[str, Any]) -> int:
+        row = self.conn.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM run_events WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        seq = int(row["seq"])
+        self.conn.execute(
+            "INSERT INTO run_events (run_id, seq, type, payload, at) VALUES (?, ?, ?, ?, ?)",
+            (run_id, seq, str(event.get("type", "event")), json.dumps(event), _now()),
+        )
+        self.conn.commit()
+        return seq
+
+    def events_for_run(self, run_id: int, after: int = 0) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT seq, payload FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq",
+            (run_id, after),
+        )
+        return [{"seq": r["seq"], **json.loads(r["payload"])} for r in rows]
 
     # --- lessons and naming plans (Stage 8) ---
 

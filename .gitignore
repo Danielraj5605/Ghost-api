@@ -18,3 +18,6 @@ output/
 # Build artifacts
 build/
 dist/
+
+# Screenshots and other run files kept next to the database
+*_files/
