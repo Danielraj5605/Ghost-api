@@ -38,6 +38,8 @@ ghost_api = ["generator/templates/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Print stack traces if a test runs over 5 minutes, so a hang shows where it is stuck.
+faulthandler_timeout = 300
 
 [tool.ruff]
 line-length = 100
