@@ -9,7 +9,7 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
-from ghost_api.config import TOOL_NAME, USER_AGENT_SUFFIX
+from ghost_api.config import TOOL_NAME, tool_user_agent
 
 
 class RateLimiter:
@@ -109,13 +109,23 @@ def fetch_robots(url: str, limiter: RateLimiter | None = None) -> RobotsPolicy:
     try:
         resp = httpx.get(
             robots_url(url),
-            headers={"User-Agent": USER_AGENT_SUFFIX},
+            headers={"User-Agent": tool_user_agent()},
             follow_redirects=True,
             timeout=10,
         )
     except httpx.HTTPError as exc:
         # Unreachable robots.txt: assume everything is disallowed.
         return RobotsPolicy(host, None, False, f"robots.txt unreachable ({type(exc).__name__})")
+    if resp.status_code in (401, 403):
+        # The site refused to show its rules (Wikipedia does this to clients that don't
+        # identify themselves). Not knowing the rules is not permission.
+        return RobotsPolicy(
+            host,
+            None,
+            False,
+            f"robots.txt is forbidden (HTTP {resp.status_code}), so the site's rules can't be "
+            "read. Set GHOST_API_CONTACT in .env so the site can identify you",
+        )
     if 400 <= resp.status_code < 500:
         return RobotsPolicy(host, None, True, f"no robots.txt (HTTP {resp.status_code})")
     if resp.status_code >= 500:

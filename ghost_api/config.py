@@ -18,6 +18,17 @@ USER_AGENT_SUFFIX = f"{TOOL_NAME}/{__version__} (API discovery tool)"
 SUPPORTED_LANGUAGES = ("python", "typescript")
 
 
+def tool_user_agent() -> str:
+    """The user-agent for requests Ghost API (not an LLM provider) sends to a target site.
+
+    Some sites (Wikimedia's, for one) refuse clients that don't say who runs them. If
+    GHOST_API_CONTACT is set (an email or a URL, chosen by the user), it is added. It is
+    never filled in automatically.
+    """
+    contact = os.getenv("GHOST_API_CONTACT", "").strip()
+    return f"{USER_AGENT_SUFFIX} (contact: {contact})" if contact else USER_AGENT_SUFFIX
+
+
 @dataclass
 class Settings:
     """Everything a run needs. CLI options override the defaults below."""

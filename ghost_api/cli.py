@@ -587,9 +587,7 @@ def generate(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Use names derived from URLs (no LLM call).")
     ] = False,
-    lang: Annotated[
-        str, typer.Option(help="Client language: python or typescript.")
-    ] = "python",
+    lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """(Re)generate the client for a site from its stored endpoint map."""
@@ -660,7 +658,9 @@ def _print_generated(result: GenerationResult) -> None:
         console.print(f"   [yellow]needs[/] {c.arg} (set {c.env} or pass it to the client)")
     for skipped in spec.skipped:
         console.print(f"   [dim]skipped {skipped}[/]")
-    files = dict.fromkeys(p.name for p in (client.client_path, client.models_path, client.tests_path))
+    files = dict.fromkeys(
+        p.name for p in (client.client_path, client.models_path, client.tests_path)
+    )
     console.print(f"[dim]Files: {', '.join(files)}[/]")
 
 
@@ -668,9 +668,7 @@ def _print_generated(result: GenerationResult) -> None:
 def verify(
     domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
-    lang: Annotated[
-        str, typer.Option(help="Client language: python or typescript.")
-    ] = "python",
+    lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Regenerate a site's client, run its tests against the live API, and repair.
@@ -797,9 +795,7 @@ def refresh(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Never call the LLM (no agent, URL-based names).")
     ] = False,
-    lang: Annotated[
-        str, typer.Option(help="Client language: python or typescript.")
-    ] = "python",
+    lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Re-check a known site using memory: replay first, browse only if needed.

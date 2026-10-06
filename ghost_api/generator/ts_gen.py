@@ -35,8 +35,14 @@ from ghost_api.generator.python_gen import (
 )
 from ghost_api.generator.spec import ClientSpec, CredentialSpec, MethodSpec, ParamSpec
 
-PRIMITIVE_TS = {"str": "string", "int": "number", "float": "number", "bool": "boolean",
-                "None": "null", "Any": "unknown"}
+PRIMITIVE_TS = {
+    "str": "string",
+    "int": "number",
+    "float": "number",
+    "bool": "boolean",
+    "None": "null",
+    "Any": "unknown",
+}
 _IDENT_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
 
@@ -94,10 +100,42 @@ def camel(name: str) -> str:
     return out if _IDENT_RE.match(out) and out not in _TS_RESERVED else f"{out}Value"
 
 
-_TS_RESERVED = {"default", "delete", "function", "new", "this", "var", "void", "with", "in",
-                "instanceof", "typeof", "class", "enum", "export", "import", "super", "case",
-                "catch", "const", "continue", "debugger", "do", "else", "finally", "for", "if",
-                "return", "switch", "throw", "try", "while", "yield", "let", "static"}
+_TS_RESERVED = {
+    "default",
+    "delete",
+    "function",
+    "new",
+    "this",
+    "var",
+    "void",
+    "with",
+    "in",
+    "instanceof",
+    "typeof",
+    "class",
+    "enum",
+    "export",
+    "import",
+    "super",
+    "case",
+    "catch",
+    "const",
+    "continue",
+    "debugger",
+    "do",
+    "else",
+    "finally",
+    "for",
+    "if",
+    "return",
+    "switch",
+    "throw",
+    "try",
+    "while",
+    "yield",
+    "let",
+    "static",
+}
 
 
 def ts_prop(field: FieldDef) -> str:
@@ -141,8 +179,14 @@ def render_typescript(spec: ClientSpec) -> dict[str, str]:
         autoescape=False,  # generating TypeScript, not HTML
     )
     env.filters.update(
-        ts_type=ts_type, ts_prop=ts_prop, camel=camel, js=js_literal, json=json.dumps,
-        path_expr=_path_expr, value=_value, creds=_creds,
+        ts_type=ts_type,
+        ts_prop=ts_prop,
+        camel=camel,
+        js=js_literal,
+        json=json.dumps,
+        path_expr=_path_expr,
+        value=_value,
+        creds=_creds,
         doc=lambda t: str(t).replace("*/", "* /").strip(),
     )
     module = module_name(spec)

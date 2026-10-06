@@ -21,7 +21,7 @@ from ghost_api.browser.snapshot import (
 )
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
-from ghost_api.config import USER_AGENT_SUFFIX
+from ghost_api.config import tool_user_agent
 from ghost_api.net import RobotsPolicy
 
 NAV_TIMEOUT_MS = 30_000
@@ -65,7 +65,7 @@ class BrowserSession:
         probe = self._browser.new_page()
         base_ua = probe.evaluate("navigator.userAgent")
         probe.close()
-        self._context = self._browser.new_context(user_agent=f"{base_ua} {USER_AGENT_SUFFIX}")
+        self._context = self._browser.new_context(user_agent=f"{base_ua} {tool_user_agent()}")
         self._page = self._context.new_page()
         # Registered after the main tab exists, so only real popups are caught.
         self._context.on("page", self._on_popup)

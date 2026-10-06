@@ -505,6 +505,7 @@ Run it yourself (uses LLM calls): `python -m evals.run_eval`, or `--sites demo-s
 ## Limitations
 
 - Sites with strong bot protection (Cloudflare challenges, CAPTCHAs) will be skipped
+- Sites whose `robots.txt` forbids their API paths for bots are respected, so Ghost API will not call those endpoints directly. Example: Wikipedia disallows `/w/` (where its search suggestions live) and refuses clients that don't identify themselves, so the run stops at the rules check. Wikipedia offers an official API for that purpose. If a site just wants to know who you are, set `GHOST_API_CONTACT` in `.env` (your own email or a URL; it is never filled in for you)
 - Server-rendered sites with no JSON API have nothing to discover
 - GraphQL, WebSocket and gRPC APIs are out of scope for version 1
 - Small free models sometimes make poor exploration choices; budgets and stopping rules limit the damage

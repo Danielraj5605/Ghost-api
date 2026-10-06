@@ -23,7 +23,13 @@ from ghost_api.capture.filters import REDACTED
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.generator.naming import apply_plan
 from ghost_api.generator.spec import ClientSpec, build_spec
-from ghost_api.generator.ts_gen import camel, js_literal, render_typescript, ts_type, write_typescript
+from ghost_api.generator.ts_gen import (
+    camel,
+    js_literal,
+    render_typescript,
+    ts_type,
+    write_typescript,
+)
 from ghost_api.verify.runner import run_node_tests
 from ghost_api.verify.verifier import Verifier
 
@@ -53,8 +59,13 @@ def test_ts_type(py: str, ts: str) -> None:
 
 @pytest.mark.parametrize(
     ("name", "expected"),
-    [("hits_per_page", "hitsPerPage"), ("class_", "classValue"), ("id", "id"),
-     ("default", "defaultValue"), ("get_quotes", "getQuotes")],
+    [
+        ("hits_per_page", "hitsPerPage"),
+        ("class_", "classValue"),
+        ("id", "id"),
+        ("default", "defaultValue"),
+        ("get_quotes", "getQuotes"),
+    ],
 )
 def test_camel(name: str, expected: str) -> None:
     assert camel(name) == expected
@@ -89,7 +100,9 @@ class Shop(BaseHTTPRequestHandler):
                 self._json({"error": "key"}, 401)
                 return
             page = int(q.get("page", "1"))
-            items = [{"id": page * 10 + i, "itemName": f"n{i}"} for i in range(2)] if page <= 3 else []
+            items = (
+                [{"id": page * 10 + i, "itemName": f"n{i}"} for i in range(2)] if page <= 3 else []
+            )
             self._json({"page": page, "has_next": page < 3, "items": items})
         elif url.path.startswith("/api/items/"):
             if self.headers.get("x-client") != "web":
@@ -112,22 +125,39 @@ def shop() -> Iterator[str]:
     httpd.shutdown()
 
 
-def captured(url: str, body: Any, method: str = "GET", req_body: Any = None,
-             headers: dict[str, str] | None = None) -> CapturedRequest:
-    return CapturedRequest(method, url, 200, "fetch", headers or {},
-                           json.dumps(req_body) if req_body is not None else None,
-                           "application/json" if req_body is not None else None,
-                           "application/json", json.dumps(body))
+def captured(
+    url: str,
+    body: Any,
+    method: str = "GET",
+    req_body: Any = None,
+    headers: dict[str, str] | None = None,
+) -> CapturedRequest:
+    return CapturedRequest(
+        method,
+        url,
+        200,
+        "fetch",
+        headers or {},
+        json.dumps(req_body) if req_body is not None else None,
+        "application/json" if req_body is not None else None,
+        "application/json",
+        json.dumps(body),
+    )
 
 
 def site(base: str) -> tuple[list[Endpoint], list[CapturedRequest], list[RawRequest | None]]:
     reqs = [
-        captured(f"{base}/api/items?page={p}&api_key={REDACTED}",
-                 {"page": p, "has_next": True, "items": [{"id": p, "itemName": "n"}]})
+        captured(
+            f"{base}/api/items?page={p}&api_key={REDACTED}",
+            {"page": p, "has_next": True, "items": [{"id": p, "itemName": "n"}]},
+        )
         for p in (1, 2)
     ] + [
-        captured(f"{base}/api/items/11", {"id": 11, "itemName": "x", "class": "a"},
-                 headers={"x-client": "web"}),
+        captured(
+            f"{base}/api/items/11",
+            {"id": 11, "itemName": "x", "class": "a"},
+            headers={"x-client": "web"},
+        ),
         captured(f"{base}/api/search", {"hits": []}, "POST", {"query": "dune", "page": 0}),
         captured(f"{base}/api/search", {"hits": []}, "POST", {"query": "foundation", "page": 0}),
     ]
@@ -142,8 +172,13 @@ def site(base: str) -> tuple[list[Endpoint], list[CapturedRequest], list[RawRequ
     for ep in eps:
         ep.replayable = True
         if ep.path_template == "/api/items":
-            ep.pagination = {"style": "page", "param": "page", "location": "query",
-                             "size_param": None, "confirmed": True}
+            ep.pagination = {
+                "style": "page",
+                "param": "page",
+                "location": "query",
+                "size_param": None,
+                "confirmed": True,
+            }
     return eps, reqs, raws
 
 
@@ -157,8 +192,10 @@ def spec_for(base: str, header_known: bool = True) -> ClientSpec:
 
 def test_rendered_typescript_has_no_secrets_and_camel_case_api() -> None:
     files = render_typescript(spec_for("http://127.0.0.1:1"))
-    client = files["n127_0_0_1_client.ts"] if "n127_0_0_1_client.ts" in files else next(
-        src for name, src in files.items() if name.endswith("_client.ts")
+    client = (
+        files["n127_0_0_1_client.ts"]
+        if "n127_0_0_1_client.ts" in files
+        else next(src for name, src in files.items() if name.endswith("_client.ts"))
     )
     assert "async getItems(" in client and "async *iterGetItems(" in client
     assert "async postSearch(" in client and '"x-client": "web"' in client
@@ -169,10 +206,29 @@ def test_rendered_typescript_has_no_secrets_and_camel_case_api() -> None:
 def test_generated_typescript_passes_tsc_strict(tmp_path: Path) -> None:
     result = write_typescript(spec_for("http://127.0.0.1:1"), tmp_path)
     proc = subprocess.run(
-        [NPX or "npx", "--yes", "--package", "typescript@5", "tsc", "--noEmit", "--strict",
-         "--target", "es2022", "--lib", "es2022,dom", "--module", "esnext",
-         "--moduleResolution", "bundler", result.client_path.name],
-        cwd=tmp_path, capture_output=True, text=True, timeout=300, shell=False,
+        [
+            NPX or "npx",
+            "--yes",
+            "--package",
+            "typescript@5",
+            "tsc",
+            "--noEmit",
+            "--strict",
+            "--target",
+            "es2022",
+            "--lib",
+            "es2022,dom",
+            "--module",
+            "esnext",
+            "--moduleResolution",
+            "bundler",
+            result.client_path.name,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        shell=False,
     )
     if proc.returncode != 0 and "npm" in proc.stderr and "ERR" in proc.stderr:
         pytest.skip(f"could not fetch the TypeScript compiler: {proc.stderr[-200:]}")
@@ -203,8 +259,14 @@ console.log(JSON.stringify({{ first: page.items[0].itemName, pages, item: item.c
 """,
         encoding="utf-8",
     )
-    proc = subprocess.run([NODE or "node", script.name], cwd=tmp_path, capture_output=True,
-                          text=True, timeout=120, env={**os.environ, cred_env: "fake-removed"})
+    proc = subprocess.run(
+        [NODE or "node", script.name],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, cred_env: "fake-removed"},
+    )
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout.strip().splitlines()[-1])
     assert out["first"] == "n0"
@@ -232,8 +294,9 @@ def test_verifier_repairs_a_typescript_client(shop: str, tmp_path: Path) -> None
 
     eps, reqs, raws = site(shop)
     replayer = Replayer("127.0.0.1", RateLimiter(10_000), RobotsPolicy.allow_all("127.0.0.1"))
-    verifier = Verifier("127.0.0.1", f"{shop}/", eps, reqs, tmp_path, raw=raws,
-                        replayer=replayer, lang="typescript")
+    verifier = Verifier(
+        "127.0.0.1", f"{shop}/", eps, reqs, tmp_path, raw=raws, replayer=replayer, lang="typescript"
+    )
     report = verifier.run()
     replayer.close()
     assert report.result is not None and report.result.client.client_path.suffix == ".ts"
