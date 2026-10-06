@@ -166,8 +166,11 @@ def _now() -> str:
 
 class Store:
     def __init__(self, path: Path | str) -> None:
-        self.conn = sqlite3.connect(str(path))
+        # check_same_thread=False: the dashboard opens a store per request; WAL lets it
+        # read while a run (another thread) writes; timeout waits out short locks.
+        self.conn = sqlite3.connect(str(path), timeout=15, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
         self._migrate()

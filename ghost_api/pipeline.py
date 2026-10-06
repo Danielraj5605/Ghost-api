@@ -139,6 +139,7 @@ class Session:
     replayer: Replayer
     gateway: LLMGateway | None
     screens: Path | None = None
+    stop: Callable[[], bool] | None = None  # e.g. the dashboard's Stop button
     memory: str = ""
     steps: list[StepRecord] = field(default_factory=list)
 
@@ -213,6 +214,7 @@ class Session:
                 ask_user=ask_user,
                 memory=self.memory,
                 screenshot=self._shooter(browser),
+                should_stop=self.stop,
             ).run()
 
     def visit(self, scrolls: int) -> None:

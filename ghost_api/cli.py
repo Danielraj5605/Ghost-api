@@ -14,7 +14,6 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 import typer
-from pydantic import BaseModel
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
@@ -26,7 +25,8 @@ from ghost_api.events import EventBus, Notice
 from ghost_api.export import write_exports
 from ghost_api.generator import NothingToGenerate, generate_client
 from ghost_api.generator.python_gen import GenerationError
-from ghost_api.llm.gateway import LLMError, LLMGateway
+from ghost_api.llm.doctor import check_providers
+from ghost_api.llm.gateway import LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.knowledge import load_memory, memory_prompt
 from ghost_api.memory.store import Store
@@ -361,11 +361,6 @@ def ui(
     serve(db or default_db_path(), out, port=port, open_browser=not no_open, console=console)
 
 
-class _Ping(BaseModel):
-    status: str
-    sum: int
-
-
 @app.command()
 def generate(
     domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
@@ -471,29 +466,15 @@ def doctor() -> None:
     table = Table(title="LLM providers")
     for col in ("Provider", "Model", "Key", "Result", "Time"):
         table.add_column(col)
-    working = 0
-    for provider in default_providers():
-        if not provider.api_key:
-            table.add_row(provider.name, provider.model, "[dim]missing[/]", "skipped", "-")
+    rows = check_providers(default_providers())
+    for r in rows:
+        if not r["key"]:
+            table.add_row(r["provider"], r["model"], "[dim]missing[/]", "skipped", "-")
             continue
-        gateway = LLMGateway([provider])
-        started = time.monotonic()
-        model = provider.model
-        try:
-            reply = gateway.ask(
-                [{"role": "user", "content": 'What is 2 + 3? Set "status" to "ok".'}],
-                response_model=_Ping,
-            )
-            model = reply.model
-            good = reply.parsed is not None and reply.parsed.sum == 5
-            result = "[green]OK[/]" if good else f"[yellow]odd answer:[/] {reply.text[:60]}"
-            working += good
-        except LLMError as exc:
-            result = f"[red]failed:[/] {str(exc)[:90]}"
-        finally:
-            gateway.close()
-        table.add_row(provider.name, model, "set", result, f"{time.monotonic() - started:.1f}s")
+        result = "[green]OK[/]" if r["ok"] else f"[red]failed:[/] {r['detail'][:90]}"
+        table.add_row(r["provider"], r["model"], "set", result, f"{r['seconds']:.1f}s")
     console.print(table)
+    working = sum(r["ok"] for r in rows)
     if not working:
         console.print("[red]No provider is working.[/] Check the keys in .env.")
         raise typer.Exit(code=1)

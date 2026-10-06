@@ -11,7 +11,6 @@ Stopping rules (any one ends the loop):
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,13 +29,7 @@ from ghost_api.capture.filters import is_same_site, redact_text
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.llm.gateway import BudgetExceeded, LLMReply, LLMUnavailable
 from ghost_api.net import RobotsPolicy
-from ghost_api.probe.replay import (
-    Replayer,
-    ReplayRefused,
-    is_replayable,
-    with_overrides,
-    with_path_params,
-)
+from ghost_api.probe.replay import Replayer, ReplayRefused, apply_params, is_replayable
 
 NO_PROGRESS_STEPS = 8
 
@@ -108,6 +101,7 @@ class Explorer:
         ask_user: Callable[[str], str] | None = None,
         memory: str = "",
         screenshot: Callable[[str], str | None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self.browser = browser
         self.llm = llm
@@ -127,6 +121,7 @@ class Explorer:
         self.memory = memory  # notes from earlier runs on this site (Stage 8)
         # Saves a screenshot under the given name and returns it (for the live view).
         self.screenshot = screenshot
+        self.should_stop = should_stop  # e.g. the dashboard's Stop button
         self.steps: list[StepRecord] = []
         self.history: list[HistoryItem] = []
 
@@ -142,6 +137,8 @@ class Explorer:
             for step in range(1, self.max_steps + 1):
                 if self.clock() - started > self.deadline_s:
                     return self._result("time-limit", "time limit reached")
+                if self.should_stop is not None and self.should_stop():
+                    return self._result("interrupted", "stopped by user")
                 snapshot = self.browser.snapshot(self.host, self.robots)
                 if is_bot_challenge(snapshot.title, snapshot.text):
                     # Never try to get past bot protection (NFR-19).
@@ -263,17 +260,10 @@ class Explorer:
         sample = next((s for s in reversed(samples) if is_replayable(s)), None)
         if sample is None:
             return "rejected: this endpoint can't be called safely (not a read-only request)", []
-        # Each parameter goes where the endpoint expects it: path, JSON body or query.
         params = d.params or {}
-        path_names = {p.name for p in target.path_params}
-        body_keys = _body_keys(sample) - path_names
-        path = {k: v for k, v in params.items() if k in path_names}
-        body = {k: _typed(v) for k, v in params.items() if k in body_keys}
-        query: dict[str, str | None] = {
-            k: v for k, v in params.items() if k not in path_names and k not in body_keys
-        }
-        request = with_path_params(sample, target.path_template, path)
-        request = with_overrides(request, query=query or None, body=body or None)
+        request = apply_params(
+            sample, target.path_template, {p.name for p in target.path_params}, params
+        )
         try:
             result = self.replayer.send(request)
         except ReplayRefused as exc:
@@ -369,22 +359,6 @@ def _find_endpoint(name: str, endpoints: list[Endpoint], host: str) -> Endpoint 
         if wanted in names:
             return ep
     return None
-
-
-def _body_keys(raw: RawRequest) -> set[str]:
-    try:
-        data = json.loads(raw.body or "")
-    except ValueError:
-        return set()
-    return set(data) if isinstance(data, dict) else set()
-
-
-def _typed(value: str) -> object:
-    """'2' -> 2 and 'true' -> True for JSON bodies; anything else stays a string."""
-    try:
-        return json.loads(value)
-    except ValueError:
-        return value
 
 
 def _describe(new: list[CapturedRequest], url: str, notes: list[str]) -> str:

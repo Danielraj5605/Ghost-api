@@ -140,6 +140,37 @@ def with_path_params(raw: RawRequest, template: str, values: dict[str, str]) -> 
     return RawRequest(raw.method, url, raw.headers, raw.body)
 
 
+def body_keys(raw: RawRequest) -> set[str]:
+    try:
+        data = json.loads(raw.body or "")
+    except ValueError:
+        return set()
+    return set(data) if isinstance(data, dict) else set()
+
+
+def typed_value(value: str) -> object:
+    """'2' -> 2 and 'true' -> True for JSON bodies; anything else stays a string."""
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
+
+
+def apply_params(
+    sample: RawRequest, path_template: str, path_names: set[str], params: dict[str, str]
+) -> RawRequest:
+    """Put each parameter where the endpoint expects it: the path, the JSON body or the
+    query string. Used by the agent's call_endpoint and the dashboard's "Try it"."""
+    in_body = body_keys(sample) - path_names
+    path = {k: v for k, v in params.items() if k in path_names}
+    body = {k: typed_value(v) for k, v in params.items() if k in in_body}
+    query: dict[str, str | None] = {
+        k: v for k, v in params.items() if k not in path_names and k not in in_body
+    }
+    request = with_path_params(sample, path_template, path)
+    return with_overrides(request, query=query or None, body=body or None)
+
+
 class Replayer:
     def __init__(
         self,
