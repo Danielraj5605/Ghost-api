@@ -12,7 +12,10 @@ Last updated: 2026-10-07.
 
 ## P1: Safety and correctness
 
-### 1. Data-changing POST requests can be treated as safe to replay
+### 1. ~~Data-changing POST requests can be treated as safe to replay~~ (fixed 2026-10-07)
+- **Fixed:** URLs are now split into whole words; a request is refused if any word is a
+  write word (`delete`, `add`, `update`, `cart`, `order`...), even for GET, and a POST
+  also needs a whole read word (`search`, `query`...). Tests cover the URLs below.
 - **Problem:** A POST counts as read-only if its URL contains a word like `search`, `query`,
   `list`, `filter` or `find` *anywhere*. So `POST /api/lists/7/delete` and
   `POST /api/wishlist/add` count as safe, and the prober (and `call_endpoint`) could send them,

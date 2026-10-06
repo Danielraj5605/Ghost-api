@@ -233,3 +233,30 @@ def test_with_path_params() -> None:
     out = with_path_params(r, "/1/indexes/{index}/query", {"index": "Comment dev"})
     assert out.url == f"https://{HOST}/1/indexes/Comment%20dev/query?x=1"
     assert with_path_params(r, "/other/{id}", {"id": "1"}).url == r.url  # shape mismatch
+
+
+# --- KNOWN_ISSUES #1: data-changing requests must never pass as read-only ---
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "ok"),
+    [
+        ("POST", "/api/lists", False),  # was wrongly accepted: contains "list"
+        ("POST", "/api/lists/7/delete", False),
+        ("POST", "/api/wishlist/add", False),
+        ("POST", "/api/wishList/addItem", False),  # camelCase split
+        ("POST", "/api/search/save", False),
+        ("POST", "/api/orders", False),  # no read word
+        ("GET", "/api/items/7/delete", False),  # writes over GET are refused too
+        ("GET", "/logout", False),
+        ("GET", "/api?action=delete&id=3", False),  # write word in a query value
+        ("POST", "/api/search", True),
+        ("POST", "/1/indexes/Item_dev/query", True),  # Algolia
+        ("POST", "/1/indexes/*/queries", True),
+        ("GET", "/api/address/lookup", True),  # "address" is not "add"
+        ("GET", "/api/reviews?page=2", True),  # "reviews" is not "review"
+        ("GET", "/api/products/7", True),
+    ],
+)
+def test_write_words_are_never_replayed(method: str, path: str, ok: bool) -> None:
+    assert is_replayable(RawRequest(method, f"https://{HOST}{path}", {}, "{}")) is ok

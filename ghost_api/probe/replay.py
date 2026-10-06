@@ -23,10 +23,24 @@ from ghost_api.capture import filters
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
 
-READ_ONLY_POST_RE = re.compile(
-    r"(search|query|queries|graphql|filter|find|lookup|autocomplete|suggest|list|browse)",
-    re.I,
-)
+# Whole words in the URL (path segments split on punctuation and camelCase). A POST is
+# read-only only if a READ word is present and no WRITE word is. Substring matching was a
+# bug: "/api/lists/7/delete" and "/api/wishlist/add" passed because they contain "list".
+READ_WORDS = {
+    "search", "query", "queries", "graphql", "filter", "filters", "find", "lookup",
+    "autocomplete", "suggest", "suggestions", "typeahead", "list", "browse", "count", "facets",
+}  # fmt: skip
+WRITE_WORDS = {
+    "delete", "remove", "destroy", "erase", "add", "create", "insert", "update", "edit",
+    "modify", "save", "submit", "send", "cancel", "buy", "purchase", "pay", "checkout", "cart",
+    "order", "subscribe", "unsubscribe", "follow", "unfollow", "like", "unlike", "vote",
+    "upvote", "downvote", "logout", "signout", "login", "signin", "register", "signup",
+    "reset", "upload", "import", "publish", "archive", "restore", "move", "rename", "share",
+    "invite", "approve", "reject", "transfer", "withdraw", "deposit", "block", "report",
+    "flag", "hide", "mark", "set", "toggle", "enable", "disable", "apply", "claim", "redeem",
+    "book", "reserve", "rate", "review", "comment", "reply", "post",
+}  # fmt: skip
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 # GraphQL mutations change data even though they go to the same URL as queries.
 _MUTATION_RE = re.compile(r"^\s*mutation\b", re.I | re.M)
 DROP_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
@@ -49,11 +63,25 @@ class ReplayResult:
         return self.error is None and 200 <= self.status < 300 and self.body is not None
 
 
+def url_words(url: str) -> set[str]:
+    """Lower-case words in a URL's path and query values: '/api/wishList/add?x=a' ->
+    {'api', 'wish', 'list', 'add', 'a'}."""
+    parts = urlsplit(url)
+    text = parts.path + " " + " ".join(v for _, v in parse_qsl(parts.query))
+    text = _CAMEL_RE.sub(" ", text)
+    return {w.lower() for w in re.split(r"[^A-Za-z0-9]+", text) if w and not w.isdigit()}
+
+
 def is_replayable(raw: RawRequest) -> bool:
+    """Only requests that read data. Anything with a write word in its URL is refused,
+    even a GET, because some sites change data with GET (`/logout`, `/item/7/delete`)."""
     method = raw.method.upper()
+    words = url_words(raw.url)
+    if words & WRITE_WORDS:
+        return False
     if method in ("GET", "HEAD"):
         return True
-    if method == "POST" and READ_ONLY_POST_RE.search(urlsplit(raw.url).path):
+    if method == "POST" and words & READ_WORDS:
         return not (raw.body and _MUTATION_RE.search(_graphql_query(raw.body)))
     return False
 
