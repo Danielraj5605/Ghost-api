@@ -126,6 +126,16 @@ with QuotesToscrapeClient() as api:
         ...
 ```
 
+The same client in TypeScript (`--lang typescript`):
+
+```ts
+import { QuotesToscrapeClient } from "./quotes_toscrape_client.ts";
+
+const api = new QuotesToscrapeClient();
+const page = await api.getQuotes(); // Promise<QuotesResponse>
+for await (const p of api.iterGetQuotes({ maxPages: 3 })) console.log(p.page);
+```
+
 A harder case: on `hn.algolia.com` the agent switched the search filter to "Comments", found
 that the real API is a POST to Algolia's servers (a third-party domain), and the prober
 confirmed that paging works in the JSON body and that the `x-algolia-api-key` URL parameter
@@ -266,7 +276,10 @@ Ghost API improves with use:
 - **Report and OpenAPI 3.1** export, plus a replayable log of every run
 - **Free:** runs on free LLM tiers with fallback between providers, caching and budgets
 
-**Not yet:** TypeScript clients, GraphQL/WebSocket APIs, automatic change detection.
+- **TypeScript client** too (`--lang typescript`): interfaces, a fetch-based client for Node 18+
+  and browsers, async page iterators, and Node tests; passes `tsc --strict`
+
+**Not yet:** GraphQL/WebSocket APIs, automatic change detection.
 
 ---
 
@@ -345,6 +358,7 @@ ghost-api report quotes.toscrape.com
 
 # Regenerate the client from stored data (no browser; --no-llm skips the naming call)
 ghost-api generate quotes.toscrape.com
+ghost-api generate quotes.toscrape.com --lang typescript   # TypeScript instead
 
 # Re-run the generated client's tests against the live API (and repair if needed)
 ghost-api verify quotes.toscrape.com
@@ -359,7 +373,7 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 | Option | Default | Meaning |
 |---|---|---|
 | `--goal` | required | What you want the client to do |
-| `--lang` | `python` | Output language |
+| `--lang` | `python` | Client language: `python` or `typescript` |
 | `--headed` | off | Show the browser window |
 | `--max-steps` | 40 | Maximum agent actions |
 | `--max-llm-calls` | 50 | Maximum LLM calls |
@@ -471,15 +485,15 @@ Four sites, run end to end with free LLM tiers on a Windows laptop with 8 GB of 
 |---|---|---|---|---|---|---|---|
 | demo-shop (local) | Known answer: 5 endpoints, page + cursor paging, traps | 100% | 100% | 100% | 6 | 36 s | 415 MB |
 | quotes.toscrape.com | Infinite-scroll JSON API | 100% | 100% | 100% | 2 | 18 s | 423 MB |
-| hn.algolia.com | Third-party POST API with a key | 100% | 100% | 100% | 10 | 259 s* | 473 MB |
+| hn.algolia.com | Third-party POST API with a key | 100% | 100% | 100% | 7 | 123 s* | 494 MB |
 | books.toscrape.com | No API at all (must not invent one) | n/a | 100% | n/a | 1 | 9 s | 452 MB |
 
 - **Recall:** share of the goal's real endpoints found. **Precision:** share of reported
   endpoints that are real (nothing was invented). **Tests passing:** generated client tests
   that passed against the live API. Peak memory includes Chromium.
 - The demo shop's "Add to cart" (a POST that changes data) was never called and never generated.
-- \*Mostly time spent retrying an overloaded Gemini model; the gateway now switches models
-  immediately instead (fixed after this run, not re-measured).
+- \*Re-measured after the gateway learned to switch away from overloaded models at once;
+  the earlier run took 259 s and 10 calls, mostly retrying an overloaded Gemini model.
 - The first attempt failed on two sites because two providers' free models had been
   retired; that led to the per-model fallback routing described above.
 

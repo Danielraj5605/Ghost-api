@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,34 @@ def run_tests(test_path: Path, env: dict[str, str] | None = None) -> list[TestOu
         if not report.exists():
             tail = (proc.stdout + proc.stderr).strip()[-800:]
             return [TestOutcome("(all)", "", "failed", f"pytest did not run: {tail}")]
+        return parse_junit(report.read_text(encoding="utf-8"))
+
+
+def run_node_tests(test_path: Path, env: dict[str, str] | None = None) -> list[TestOutcome]:
+    """Run a generated TypeScript test file with Node's built-in runner (Node 23.6+ runs
+    .ts files directly). Results come back in the same JUnit format as pytest's."""
+    test_path = test_path.resolve()
+    node = shutil.which("node")
+    if node is None:
+        return [TestOutcome("(all)", "", "skipped", "Node.js is not installed")]
+    with tempfile.TemporaryDirectory() as tmp:
+        report = Path(tmp) / "report.xml"
+        cmd = [node, "--test", "--test-reporter=junit", f"--test-reporter-destination={report}",
+               test_path.name]  # fmt: skip
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=test_path.parent,
+                env={**os.environ, **(env or {})},
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            return [TestOutcome("(all)", "", "failed", f"tests timed out after {TIMEOUT_S}s")]
+        if not report.exists() or not report.read_text(encoding="utf-8").strip():
+            tail = (proc.stdout + proc.stderr).strip()[-800:]
+            return [TestOutcome("(all)", "", "failed", f"node did not run the tests: {tail}")]
         return parse_junit(report.read_text(encoding="utf-8"))
 
 

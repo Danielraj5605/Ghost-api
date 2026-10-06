@@ -6,7 +6,7 @@ Max 20 agent steps and 30 LLM calls per site.
 |---|---|---|---|---|---|---|---|---|---|
 | demo-shop | goal-covered | 100% | 100% | 100% | 6 | 36s | 415 MB | - | - |
 | quotes | goal-covered | 100% | 100% | 100% | 2 | 18s | 423 MB | - | - |
-| hn-algolia | goal-covered | 100% | 100% | 100% | 10 | 259s | 473 MB | - | - |
+| hn-algolia | goal-covered | 100% | 100% | 100% | 7 | 123s | 494 MB | - | - |
 | books-no-api | finished | n/a | 100% | n/a | 1 | 9s | 452 MB | - | - |
 
 Found endpoints:
@@ -27,5 +27,5 @@ over its daily quota or overloaded for much of the time, so many answers came fr
 - **Fixes:** per-model routing with fallback models, waiting that ignores dead routes, and
   a scoring fix (an endpoint seen with one value was counted as invented).
 - **Re-run** of hn-algolia and books-no-api after the fixes: the rows above.
-- hn-algolia's 259 s was mostly the gateway retrying an overloaded Gemini model; it now
-  moves to another model at once (fixed after this run, not re-measured).
+- hn-algolia was re-measured on 2026-10-06 after the gateway learned to move away from an
+  overloaded model at once: 123 s and 7 LLM calls, down from 259 s and 10 calls.

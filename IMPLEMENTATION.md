@@ -291,7 +291,7 @@ Priority: **M** = must have (MVP), **S** = should have, **C** = could have (late
 | FR-30 | Include built-in rate limiting and retry in the generated client | S |
 | FR-31 | Generate a pytest test file covering each endpoint | M |
 | FR-32 | Export an OpenAPI 3 spec | S |
-| FR-33 | Generate a TypeScript client | C |
+| FR-33 | Generate a TypeScript client (done after the MVP: `--lang typescript`) | C |
 
 ### 4.7 Verification and replanning
 
@@ -769,7 +769,7 @@ The build is split into 11 stages over about two weeks. Each stage ends with som
 
 | Item | Requirement |
 |---|---|
-| TypeScript client generation | FR-33 |
+| TypeScript client generation: done (`ghost_api/generator/ts_gen.py`, `--lang typescript`; types, fetch client, async page iterators, Node tests, verified like the Python client) | FR-33 |
 | Change detection and automatic client updates | FR-43 |
 | GraphQL support | Non-goal for v1 |
 | Web UI that shows the agent's exploration live | New |
@@ -801,8 +801,8 @@ Measured on 2026-10-05 (details: `evals/results/results.md`).
 | Test pass rate | Verified / tested endpoints | 85% or higher | 100% (7 of 7 endpoints) |
 | LLM calls per site | Counted by the gateway | 50 or fewer | 1-10 |
 | Refresh savings | Refresh calls / first-run calls | 50% or lower | 0% (0 calls: live on quotes, and 0 vs 4 in the end-to-end test) |
-| Time per site | Measured | 10 minutes or less | 9-259 s |
-| Peak memory | Process tree incl. Chromium | 1.5 GB or less | 415-473 MB |
+| Time per site | Measured | 10 minutes or less | 9-123 s (hn.algolia re-measured after the overload fix; it was 259 s) |
+| Peak memory | Process tree incl. Chromium | 1.5 GB or less | 415-494 MB |
 | Cost | Free tiers only | $0 | $0 |
 
 ### 8.3 MVP acceptance checklist

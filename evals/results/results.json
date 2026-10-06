@@ -54,9 +54,9 @@
     "unverified": 0,
     "failed": 0,
     "pass_rate": 1.0,
-    "llm_calls": 10,
-    "seconds": 259.2,
-    "peak_mb": 473.3,
+    "llm_calls": 7,
+    "seconds": 123.0,
+    "peak_mb": 494.0,
     "forbidden_generated": [],
     "log": ""
   },

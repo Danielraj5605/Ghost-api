@@ -29,7 +29,7 @@ from ghost_api.probe.prober import Prober
 from ghost_api.probe.replay import Replayer, ReplayRefused, is_replayable, with_overrides
 from ghost_api.verify.classify import FailureKind, classify, short_reason, validation_locations
 from ghost_api.verify.repair import relax_schema
-from ghost_api.verify.runner import TestOutcome, run_tests
+from ghost_api.verify.runner import TestOutcome, run_node_tests, run_tests
 
 MAX_ROUNDS = 3
 BACKOFF_S = 20.0
@@ -74,7 +74,8 @@ class Verifier:
         on_round: Callable[[Round], None] | None = None,
         add_sample: Callable[[CapturedRequest, RawRequest], object] | None = None,
         sleep: Callable[[float], None] = time.sleep,
-        test_runner: Callable[[Path, dict[str, str]], list[TestOutcome]] = run_tests,
+        test_runner: Callable[[Path, dict[str, str]], list[TestOutcome]] | None = None,
+        lang: str = "python",
     ) -> None:
         self.domain = domain
         self.start_url = start_url
@@ -88,7 +89,8 @@ class Verifier:
         self.on_round = on_round
         self.add_sample = add_sample  # e.g. TrafficRecorder.add, which also saves it
         self.sleep = sleep
-        self.run_tests = test_runner
+        self.lang = lang
+        self.run_tests = test_runner or (run_node_tests if lang == "typescript" else run_tests)
         self._tried: set[tuple[str, str]] = set()  # (endpoint key, repair) already applied
 
     # --- main loop ---
@@ -99,7 +101,7 @@ class Verifier:
         for number in range(1, MAX_ROUNDS + 1):
             result = generate_from(
                 self.domain, self.start_url, self.endpoints, self.requests,
-                self.out_root, self.plan,
+                self.out_root, self.plan, self.lang,
             )  # fmt: skip
             outcomes = self.run_tests(result.client.tests_path, self._credentials_env(result.spec))
             current = Round(number, outcomes)

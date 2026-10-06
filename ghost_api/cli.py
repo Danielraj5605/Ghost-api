@@ -25,7 +25,7 @@ from ghost_api.analysis.schema import top_level_fields
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
-from ghost_api.config import Settings, default_db_path, load_env
+from ghost_api.config import SUPPORTED_LANGUAGES, Settings, default_db_path, load_env
 from ghost_api.errors import friendly_error
 from ghost_api.export import write_exports
 from ghost_api.generator import (
@@ -36,6 +36,7 @@ from ghost_api.generator import (
     plan_for,
 )
 from ghost_api.generator.python_gen import GenerationError
+from ghost_api.generator.ts_gen import camel, ts_type
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.knowledge import (
@@ -203,6 +204,7 @@ def run(
             no_generate=no_generate,
             no_verify=no_verify,
             out=out,
+            lang=settings.lang,
         )
         console.print(f"[dim]Saved to {settings.db_path}[/]")
     if status in ("failed", "llm-unavailable"):
@@ -353,6 +355,7 @@ def _finish(
     no_generate: bool,
     no_verify: bool,
     out: Path,
+    lang: str = "python",
 ) -> None:
     """Workflow stages 4-8: probe, generate, verify, learn, report."""
     store, host = s.store, s.host
@@ -377,7 +380,7 @@ def _finish(
         try:
             if no_verify:
                 generated = generate_from(
-                    host, s.start_url, endpoints, s.recorder.captured, out, plan
+                    host, s.start_url, endpoints, s.recorder.captured, out, plan, lang
                 )
             else:
                 console.print()
@@ -394,6 +397,7 @@ def _finish(
                     explore=s.replan if s.gateway is not None else None,
                     on_round=_print_round,
                     add_sample=s.recorder.add,
+                    lang=lang,
                 )
                 verification = verifier.run()
                 generated = verification.result
@@ -441,6 +445,14 @@ def _finish(
         )
         for problem, count in u.problems.most_common(5):
             console.print(f"[dim]   {count}x {problem}[/]")
+
+
+def _check_lang(lang: str) -> str:
+    if lang not in SUPPORTED_LANGUAGES:
+        raise typer.BadParameter(
+            f"Unsupported language '{lang}'. Supported: {', '.join(SUPPORTED_LANGUAGES)}"
+        )
+    return lang
 
 
 def _ask_user(question: str) -> str:
@@ -575,9 +587,12 @@ def generate(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Use names derived from URLs (no LLM call).")
     ] = False,
+    lang: Annotated[
+        str, typer.Option(help="Client language: python or typescript.")
+    ] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
-    """(Re)generate the Python client for a site from its stored endpoint map."""
+    """(Re)generate the client for a site from its stored endpoint map."""
     path = db or default_db_path()
     if not path.exists():
         console.print(f"No database at {path}. Run `ghost-api run` first.")
@@ -589,7 +604,7 @@ def generate(
         with Store(path) as store:
             if gateway is not None:
                 gateway.store = store
-            result = generate_client(store, domain, out, llm=gateway)
+            result = generate_client(store, domain, out, llm=gateway, lang=_check_lang(lang))
     except (NothingToGenerate, GenerationError) as exc:
         console.print(f"[red]No client generated:[/] {exc}")
         raise typer.Exit(code=1) from exc
@@ -630,24 +645,32 @@ def _print_generated(result: GenerationResult) -> None:
     spec, client = result.spec, result.client
     how = "names chosen by the LLM" if result.named_by_llm else "names derived from URLs"
     console.print(f"\n[bold green]Generated[/] {spec.class_name} ({how}) in {client.directory}")
+    typescript = client.client_path.suffix == ".ts"
     for m in spec.methods:
-        args = ", ".join(p.name for p in m.required)
-        extra = f"  + iter_{m.name}()" if m.page_param else ""
-        console.print(f"   {m.name}({args}) -> {m.response_type}{extra}")
+        if typescript:
+            name, args = camel(m.name), ", ".join(camel(p.name) for p in m.required)
+            iterator = f"iter{name[:1].upper()}{name[1:]}()"
+            returns = ts_type(m.response_type)
+        else:
+            name, args = m.name, ", ".join(p.name for p in m.required)
+            iterator, returns = f"iter_{m.name}()", m.response_type
+        extra = f"  + {iterator}" if m.page_param else ""
+        console.print(f"   {name}({args}) -> {returns}{extra}")
     for c in spec.credentials:
         console.print(f"   [yellow]needs[/] {c.arg} (set {c.env} or pass it to the client)")
     for skipped in spec.skipped:
         console.print(f"   [dim]skipped {skipped}[/]")
-    console.print(
-        f"[dim]Files: {client.client_path.name}, {client.models_path.name}, "
-        f"{client.tests_path.name}[/]"
-    )
+    files = dict.fromkeys(p.name for p in (client.client_path, client.models_path, client.tests_path))
+    console.print(f"[dim]Files: {', '.join(files)}[/]")
 
 
 @app.command()
 def verify(
     domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
+    lang: Annotated[
+        str, typer.Option(help="Client language: python or typescript.")
+    ] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Regenerate a site's client, run its tests against the live API, and repair.
@@ -674,6 +697,7 @@ def verify(
             store.requests_for_domain(domain),
             out,
             on_round=_print_round,
+            lang=_check_lang(lang),
         )
         try:
             report = verifier.run()
@@ -773,6 +797,9 @@ def refresh(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Never call the LLM (no agent, URL-based names).")
     ] = False,
+    lang: Annotated[
+        str, typer.Option(help="Client language: python or typescript.")
+    ] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Re-check a known site using memory: replay first, browse only if needed.
@@ -855,6 +882,7 @@ def refresh(
             no_generate=False,
             no_verify=no_verify,
             out=out,
+            lang=_check_lang(lang),
         )
         first = store.first_run_llm_calls(domain)
         now = gateway.usage.answered if gateway is not None else 0

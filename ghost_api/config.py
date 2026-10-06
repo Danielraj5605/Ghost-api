@@ -15,7 +15,7 @@ TOOL_NAME = "GhostAPI"
 # TODO: add the project URL once the GitHub repo exists.
 USER_AGENT_SUFFIX = f"{TOOL_NAME}/{__version__} (API discovery tool)"
 
-SUPPORTED_LANGUAGES = ("python",)
+SUPPORTED_LANGUAGES = ("python", "typescript")
 
 
 @dataclass
