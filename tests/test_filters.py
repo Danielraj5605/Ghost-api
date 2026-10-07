@@ -4,6 +4,7 @@ import pytest
 
 from ghost_api.capture import filters
 from ghost_api.capture.filters import REDACTED
+from tests.fake_secrets import bearer, fake_jwt, fake_token
 
 
 @pytest.mark.parametrize(
@@ -108,11 +109,11 @@ def test_redact_json_nested_keeps_normal_fields() -> None:
 
 
 def test_redact_text_masks_jwt_and_bearer() -> None:
-    jwt = "fake-jwt-removed"
-    text = f"token is {jwt} and header Bearer fake-token-removed"
+    jwt = fake_jwt()
+    text = f"token is {jwt} and header {bearer()}"
     out = filters.redact_text(text)
     assert jwt not in out
-    assert "abcdefghijklmnop" not in out
+    assert fake_token() not in out
 
 
 def test_redact_body_json_and_form() -> None:

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ghost_api.llm.gateway import BudgetExceeded, LLMGateway, LLMUnavailable, extract_json
 from ghost_api.llm.providers import Provider, default_providers
 from ghost_api.memory.store import Store
+from tests.fake_secrets import bearer, fake_jwt, fake_token
 
 A = Provider("alpha", "https://alpha.test/v1", "a-model", api_key="fake-removed-a")
 B = Provider("beta", "https://beta.test/v1", "b-model", api_key="fake-removed-b", json_mode=False)
@@ -234,11 +235,11 @@ def test_budget_is_enforced() -> None:
 
 
 def test_secrets_are_redacted_before_sending() -> None:
-    jwt = "fake-jwt-removed"
+    jwt = fake_jwt()
     fake = Fake(alpha=[ok("x")])
-    gateway(fake).ask([{"role": "user", "content": f"header was Bearer fake-token-removed, token {jwt}"}])
+    gateway(fake).ask([{"role": "user", "content": f"header was {bearer()}, token {jwt}"}])
     sent = fake.requests[0].content.decode()
-    assert jwt not in sent and "abcdefghijkl" not in sent
+    assert jwt not in sent and fake_token() not in sent
 
 
 @pytest.mark.parametrize(

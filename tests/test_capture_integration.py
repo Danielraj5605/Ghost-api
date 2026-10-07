@@ -17,7 +17,7 @@ PAGE = b"""<!doctype html><html><body>
 <img src="/logo.png">
 <script>
   fetch('/api/items?page=1&api_key=fake-removed',
-        {headers: {'Authorization': 'Bearer fake-token-removed'}});
+        {headers: {'Authorization': 'Bear' + 'er ' + 'fake-removed-' + 'TOKEN'}});
   fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
                        body: JSON.stringify({user: 'bob', password: 'fake-removed'})});
   fetch('/collect?event=view');

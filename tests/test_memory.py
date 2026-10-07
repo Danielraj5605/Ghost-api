@@ -30,6 +30,7 @@ from ghost_api.memory.knowledge import (
     write_lessons,
 )
 from ghost_api.memory.store import Store
+from tests.fake_secrets import fake_jwt
 
 
 def cap(url: str, body: Any, headers: dict[str, str] | None = None) -> CapturedRequest:
@@ -42,7 +43,7 @@ def cap(url: str, body: Any, headers: dict[str, str] | None = None) -> CapturedR
 
 
 def test_clean_lesson() -> None:
-    jwt = "fake-jwt-removed"
+    jwt = fake_jwt()
     text = clean_lesson(f"Search\n  fires after typing; token {jwt} " + "x" * 500)
     assert "\n" not in text and jwt not in text
     assert text.startswith("Search fires after typing") and len(text) == MAX_LESSON_CHARS

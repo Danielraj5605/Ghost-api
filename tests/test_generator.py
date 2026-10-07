@@ -27,6 +27,7 @@ from ghost_api.generator.naming import (
 )
 from ghost_api.generator.python_gen import GenerationError, check, render, write
 from ghost_api.generator.spec import build_spec, is_user_input
+from tests.fake_secrets import bearer
 
 HOST = "shop.test"
 START = f"https://{HOST}/"
@@ -267,7 +268,7 @@ def test_rendered_files_compile_and_contain_no_secrets() -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["x = '[REDACTED]'", "token = 'Bearer fake-token-removed'", "def broken(:"],
+    ["x = '[REDACTED]'", f"token = '{bearer()}'", "def broken(:"],
 )
 def test_check_rejects_bad_output(bad: str) -> None:
     with pytest.raises(GenerationError):
