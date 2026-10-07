@@ -105,7 +105,7 @@ Last updated: 2026-10-07 (after the UI work).
 - **Fix:** Merge endpoints across runs, with a "last seen" date and status, and drop them
   only after a refresh confirms they are gone.
 
-### 10. No change detection
+### 10. ~~No change detection~~ (fixed 2026-10-07: `ghost-api watch`)
 - **Problem:** Ghost API does not tell you when a site's API changed (new or removed fields,
   new endpoints). This was planned (FR-43) and not built.
 - **Fix:** In `refresh`, compare new schemas with stored ones and print a short diff
@@ -269,12 +269,33 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
   least 2 different inputs (paging aside) across 3 replies, or 6 replies. Otherwise they may
   be missing. See `trust_required()` in `ghost_api/generator/spec.py`.
 
-### 34. POST searches were never in the client (now: `--allow`)
+### 34. POST searches were never in the client (now: `--allow` and a dashboard switch)
 - **Problem:** Many sites use POST for read-only searches (Turf Town's venue list). Ghost API
   rightly never decides by itself that a POST without a read word is safe, so no method was
   generated.
 - **Now:** `ghost-api generate SITE --allow "POST /path"` includes an endpoint the user has
   checked only reads. Automatic detection is still open.
+
+### 35. Leak check: names and addresses are only caught by field name
+- **Problem:** Emails, phones, PAN/GST/Aadhaar, UPI, bank and card numbers are recognised by
+  their shape. People's names and home addresses can't be: only fields named like
+  `account_holder` or `beneficiary` are hidden. A name in a field called `contact_person`
+  would be kept.
+- **Fix:** More field-name hints, and an optional "strict" mode that hides every string in
+  fields whose name suggests a person.
+
+### 36. Watches compare everything except volatile-looking fields
+- **Problem:** Fields that change on every visit but don't look volatile (a rotating
+  "featured" flag, a random image order) make items look "changed" each time.
+- **Workaround:** `--track price,name` limits what counts. **Fix:** learn volatile fields
+  from two quick back-to-back fetches when a watch is created.
+
+### 37. ntfy topics are public by name
+- **Problem:** Anyone who guesses an ntfy.sh topic can read its messages. Ghost API's
+  messages contain only item titles and changed values (personal data stays hidden), but
+  the README and dashboard say to pick a long, unguessable topic.
+- **Fix:** Support ntfy access tokens (`ntfy:topic?token=...`) or a self-hosted server
+  (`GHOST_API_NTFY_URL`, already supported).
 
 ---
 

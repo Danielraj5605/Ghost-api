@@ -24,6 +24,7 @@ Give Ghost API a website and a plain-English goal. It opens the site in a real b
 - [Features](#features)
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
+- [What can I do with it?](#what-can-i-do-with-it)
 - [Three ways to see the results](#three-ways-to-see-the-results)
 - [Usage](#usage)
 - [Output](#output)
@@ -285,6 +286,12 @@ Ghost API improves with use:
 - **Web dashboard** (`ghost-api ui`): start runs, watch the agent's browser and reasoning live,
   browse endpoints with their schemas, call them with "Try it", read and download the code
 - **Shareable report:** every run writes `report.html`, one file that works offline
+- **Data download, no code:** `ghost-api fetch` and the dashboard's Download data:
+  all pages to CSV, Excel or JSON
+- **Watch & alerts:** new / changed / gone items, to your phone, a webhook or the desktop
+- **REST and MCP servers:** use sites from Excel, any language, or an AI assistant
+- **Personal-data leak check:** spots and hides emails, phones, PAN/GST/Aadhaar, UPI and
+  bank details, and reports which endpoints expose them
 
 - **TypeScript client** too (`--lang typescript`): interfaces, a fetch-based client for Node 18+
   and browsers, async page iterators, and Node tests; passes `tsc --strict`
@@ -394,6 +401,27 @@ OPENROUTER_API_KEY=optional_second_fallback
 
 ---
 
+## What can I do with it?
+
+Ghost API first learns a website's hidden API (`ghost-api run ...`). After that, you can use
+what it learned in five ways, most of them without writing any code:
+
+| I want to... | Do this |
+|---|---|
+| **Get the data in a spreadsheet** | `ghost-api fetch turftown.in/chennai get_nearby_venues area=velachery sport=football --format xlsx` follows all the pages and saves an Excel, CSV or JSON file. In the dashboard: open an endpoint and press **Download data**. `ghost-api fetch SITE` lists what you can fetch. |
+| **Know when something changes** | `ghost-api watch add quotes.toscrape.com list_quotes --every 6h --notify ntfy:my-long-private-topic` re-checks on a schedule and tells you what's new, what changed (a price, a name...) and what's gone, on your phone ([ntfy](https://ntfy.sh)), a webhook (Discord, Slack...) or a desktop notification. `ghost-api watch schedule` keeps it running in the background on Windows. Dashboard: **Watch this for changes**, and the **Watches** page. |
+| **Use it from Excel, scripts or any language** | `ghost-api serve turftown.in/chennai` gives every endpoint a clean local URL, e.g. `http://127.0.0.1:8900/turftown.in~chennai/get_nearby_venues?area=velachery&format=csv`, with interactive docs at `/docs`. |
+| **Let an AI assistant use the site** | `claude mcp add ghost-turftown -- ghost-api mcp turftown.in/chennai` (after `pip install -e ".[mcp]"`). Claude can then answer "cheapest football turfs near Velachery?" by calling the site's endpoints itself. |
+| **Check a site for personal-data leaks** | Every run looks for emails, phone numbers, PAN/GST/Aadhaar numbers, UPI IDs and bank details in the replies. They are **hidden** before anything is stored, and the report, the terminal and the dashboard say which endpoints hand them out, and whether a login is needed. Use it on your own site, or one you're allowed to test. |
+| **Write code with it** | Use the generated, tested Python or TypeScript client (see [Output](#output)), or the examples in [`examples/`](examples). |
+
+All of these only **read** data: they go through the same rules as the explorer (robots.txt,
+one request per second, nothing that looks like it changes data unless you say
+`generate --allow "POST /path"` or press "I checked: it only reads" in the dashboard), and
+they keep personal data hidden unless you pass `--include-sensitive` for your own site.
+
+---
+
 ## Three ways to see the results
 
 **1. The terminal.** `ghost-api run ...`, or just `ghost-api` to be asked for a URL and a
@@ -460,6 +488,20 @@ ghost-api verify quotes.toscrape.com
 
 # Check that your LLM keys work
 ghost-api doctor
+
+# Download data (no code): list what's available, then fetch all pages to a file
+ghost-api fetch quotes.toscrape.com
+ghost-api fetch quotes.toscrape.com list_quotes --pages 10 --format xlsx
+
+# Watch for changes and get alerts
+ghost-api watch add quotes.toscrape.com list_quotes --every 6h --notify ntfy:my-long-private-topic
+ghost-api watch list
+ghost-api watch run              # check now
+ghost-api watch schedule         # keep checking in the background (Windows Task Scheduler)
+
+# Use sites from other tools
+ghost-api serve quotes.toscrape.com            # REST API on http://127.0.0.1:8900 (docs at /docs)
+ghost-api mcp quotes.toscrape.com              # MCP server for AI assistants (stdio)
 
 # Open the web dashboard (local only)
 ghost-api ui
@@ -555,7 +597,10 @@ ghost-api/
 |   |-- probe/              # Safe replays and hypothesis testing
 |   |-- generator/          # Naming, models, client spec, Jinja2 templates
 |   |-- verify/             # Run generated tests, classify failures, repair
-|   |-- export/             # report.md, report.html, OpenAPI 3.1, confidence
+|   |-- export/             # report.md, report.html, OpenAPI 3.1, CSV/Excel, confidence
+|   |-- runtime.py          # Call a site's endpoints by name, follow pages, get rows
+|   |-- watch.py            # Watches: compare snapshots, notifications
+|   |-- serve/              # REST API and MCP server
 |   |-- llm/                # Provider gateway: fallback, cooldown, validation, cache
 |   +-- memory/             # SQLite store, lessons, memory for refresh
 |-- tests/                  # 400+ tests (no LLM quota needed)
@@ -596,6 +641,16 @@ Ghost API is built to behave like a polite, careful developer:
 - Uses an honest user-agent string
 
 Check a site's terms of service before generating a client for it. For demos and testing, use practice sites such as `quotes.toscrape.com/scroll`, which loads its data from a JSON API. (`books.toscrape.com` renders on the server, so it has no API to discover.)
+
+Also:
+
+- **Personal data is hidden, always.** Emails, phone numbers, PAN/GST/Aadhaar numbers, UPI IDs
+  and bank details in a site's replies are replaced before Ghost API stores anything, and stay
+  hidden in fetches, watches, the REST API and MCP tools. `--include-sensitive` turns that off,
+  for auditing your own site only. If you find a site exposing such data, tell the owner
+  privately instead of collecting it.
+- **Watches and servers keep the same manners:** read-only, one request per second per site,
+  robots.txt respected, checks no more often than every 5 minutes.
 
 ---
 
@@ -654,6 +709,7 @@ The full, prioritised list of known problems is in [KNOWN_ISSUES.md](KNOWN_ISSUE
 | 9 | Reporting and OpenAPI export | Done |
 | 10 | Evaluation and polish | Done |
 | UI 0–6 | Event pipeline, live terminal, web dashboard, report.html, docs | Done |
+| Use 1–6 | Data download, watch & alerts, REST + MCP servers, personal-data leak check | Done |
 
 Full details are in [IMPLEMENTATION.md](IMPLEMENTATION.md). To work on the dashboard itself,
 see [web/README.md](web/README.md).

@@ -46,6 +46,23 @@ porur, ramapuram, royappa nagar, sholinganallur, thoraipakkam, urapakkam, vandal
 varadharajapuram, velachery. Sports: badminton, basketball, cricket, football, padel,
 pickleball, squash, swimming, tabletennis, tennis.
 
+## No code at all
+
+The same venue list as a spreadsheet, straight from Ghost API:
+
+```bat
+ghost-api fetch turftown.in/chennai get_nearby_venues area=velachery sport=football "latLong=[12.9791,80.2198]" --pages 2 --format xlsx
+```
+
+Get told when a new turf appears or a price changes:
+
+```bat
+ghost-api watch add turftown.in/chennai get_nearby_venues area=velachery sport=football "latLong=[12.9791,80.2198]" --every 1d --notify ntfy:a-long-private-topic --track configuration.avg_price,venue.name
+```
+
+Or let Claude answer questions about it: `claude mcp add ghost-turftown -- ghost-api mcp turftown.in/chennai`.
+Emails and phone numbers in the listings stay hidden in all of these.
+
 ## Where Ghost API helped
 
 Turf Town has no public API and no documentation. Its website loads venues from a hidden

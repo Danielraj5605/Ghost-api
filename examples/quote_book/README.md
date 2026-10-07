@@ -26,6 +26,17 @@ Saved quote_book.html: open it in your browser (works offline).
 
 Then open `quote_book.html`: search by words or author, and click a tag to filter.
 
+## No code at all
+
+If you only want the quotes in a spreadsheet, you don't need this script:
+
+```bat
+ghost-api fetch quotes.toscrape.com list_quotes --pages 10 --format xlsx
+```
+
+Or open the dashboard (`ghost-api ui`), pick the endpoint and press **Download data**. This
+project shows what you can build when you do want code.
+
 ## Where Ghost API helped
 
 The website has no official API and no documentation. Getting its data normally means
