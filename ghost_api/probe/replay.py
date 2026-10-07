@@ -200,8 +200,10 @@ class Replayer:
             self._robots[host] = self._fetch_robots(url)
         return self._robots[host].allows(url)
 
-    def send(self, raw: RawRequest) -> ReplayResult:
-        if not is_replayable(raw):
+    def send(self, raw: RawRequest, trusted_read: bool = False) -> ReplayResult:
+        """Send a read-only request. `trusted_read`: the user checked this endpoint only
+        reads (e.g. a POST search, see `generate --allow`); otherwise the URL must say so."""
+        if not trusted_read and not is_replayable(raw):
             raise ReplayRefused(f"{raw.method} requests that may change data are never replayed")
         if self.requests_made >= self.max_requests:
             raise ReplayRefused(f"probe budget of {self.max_requests} requests used up")

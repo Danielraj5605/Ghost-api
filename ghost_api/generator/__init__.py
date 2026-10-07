@@ -9,7 +9,7 @@ from ghost_api.analysis.models import Endpoint
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.generator.naming import NAMING_SYSTEM, NamingPlan, apply_plan, naming_prompt
 from ghost_api.generator.python_gen import GeneratedClient, write
-from ghost_api.generator.spec import ClientSpec, build_spec
+from ghost_api.generator.spec import ClientSpec, build_spec, is_allowed
 from ghost_api.generator.ts_gen import write_typescript
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.memory.store import Store
@@ -104,4 +104,12 @@ def generate_client(
     endpoints = store.load_endpoints(domain, run_id)
     requests = store.requests_for_domain(domain)
     plan = plan_for(store, llm, domain, endpoints)
-    return generate_from(domain, run.start_url, endpoints, requests, out_root, plan, lang, allow)
+    # Remember what the user allowed, so a later plain `generate` keeps those methods.
+    if allow:
+        unknown = {a for a in allow if not any(is_allowed(e, {a}) for e in endpoints)}
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise NothingToGenerate(f"--allow names no stored endpoint: {names}")
+        store.allow_endpoints(domain, [e.key for e in endpoints if is_allowed(e, allow)])
+    allowed = store.allowed_endpoints(domain)
+    return generate_from(domain, run.start_url, endpoints, requests, out_root, plan, lang, allowed)

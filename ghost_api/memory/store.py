@@ -131,6 +131,14 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     created_at  TEXT NOT NULL
 );
 
+-- Endpoints the user checked only read data (e.g. a POST search): `generate --allow`.
+CREATE TABLE IF NOT EXISTS allowed_endpoints (
+    domain       TEXT NOT NULL,
+    endpoint_key TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    PRIMARY KEY (domain, endpoint_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_run ON requests(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_domain ON runs(domain);
 """
@@ -536,6 +544,26 @@ class Store:
             "SELECT plan FROM naming_plans WHERE domain = ?", (domain,)
         ).fetchone()
         return str(row["plan"]) if row else None
+
+    def allow_endpoints(self, domain: str, keys: Iterable[str]) -> None:
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO allowed_endpoints (domain, endpoint_key, created_at)"
+            " VALUES (?, ?, ?)",
+            [(domain, key, _now()) for key in keys],
+        )
+        self.conn.commit()
+
+    def disallow_endpoint(self, domain: str, key: str) -> None:
+        self.conn.execute(
+            "DELETE FROM allowed_endpoints WHERE domain = ? AND endpoint_key = ?", (domain, key)
+        )
+        self.conn.commit()
+
+    def allowed_endpoints(self, domain: str) -> set[str]:
+        rows = self.conn.execute(
+            "SELECT endpoint_key FROM allowed_endpoints WHERE domain = ?", (domain,)
+        )
+        return {str(r["endpoint_key"]) for r in rows}
 
     def first_run_llm_calls(self, domain: str) -> int | None:
         """LLM calls of the most recent full exploration (not a refresh), for comparison."""

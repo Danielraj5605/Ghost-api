@@ -307,6 +307,7 @@ def build_spec(
 
 def is_allowed(ep: Endpoint, allow: set[str]) -> bool:
     labels = {
+        ep.key,
         f"{ep.method} {ep.path_template}",
         f"{ep.method} {ep.host}{ep.path_template}",
         ep.label,

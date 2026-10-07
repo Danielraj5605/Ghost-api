@@ -42,7 +42,6 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 
 from ghost_api import __version__
-from ghost_api.analysis.analyzer import endpoint_keys
 from ghost_api.config import SUPPORTED_LANGUAGES
 from ghost_api.errors import friendly_error
 from ghost_api.events import EventBus, Notice
@@ -52,7 +51,7 @@ from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.doctor import check_providers
 from ghost_api.llm.gateway import LLMGateway
 from ghost_api.llm.providers import default_providers
-from ghost_api.memory.knowledge import load_memory, memory_prompt, rebuild_raw
+from ghost_api.memory.knowledge import load_memory, memory_prompt
 from ghost_api.memory.store import RunRow, Store
 from ghost_api.net import RateLimiter
 from ghost_api.pipeline import (
@@ -64,7 +63,8 @@ from ghost_api.pipeline import (
     robots_policy,
     screenshots_dir,
 )
-from ghost_api.probe.replay import Replayer, ReplayRefused, apply_params, is_replayable
+from ghost_api.probe.replay import Replayer, ReplayRefused
+from ghost_api.runtime import OperationError, SiteRuntime
 from ghost_api.site import from_url_id, is_site, site_host, to_url_id
 
 STATIC = Path(__file__).parent / "static"
@@ -422,35 +422,23 @@ def create_app(
         """Call an endpoint once, read-only, with the given parameters."""
         domain = _site_name(domain)
         _site_folder(out, domain)
-        with store() as s:
-            run_id = s.latest_endpoint_run(domain)
-            endpoints = s.load_endpoints(domain, run_id) if run_id else []
-            target = next((e for e in endpoints if e.key == call.endpoint), None)
-            if target is None:
-                raise HTTPException(404, "Unknown endpoint")
-            stored = s.requests_for_domain(domain)
-        samples = [
-            r for k, r in zip(endpoint_keys(stored), stored, strict=False) if k == target.key
-        ]
-        sample = None
-        for captured in reversed(samples):
-            raw = rebuild_raw(captured, target.required_headers)
-            if raw is not None and is_replayable(raw):
-                sample = raw
-                break
-        if sample is None:
-            raise HTTPException(
-                409,
-                "This endpoint needs a fresh key or session, or it changes data. Run a "
-                "refresh first, or use the generated client with your credentials.",
-            )
-        request = apply_params(
-            sample, target.path_template, {p.name for p in target.path_params}, call.params
-        )
         replayer = Replayer(site_host(domain), RateLimiter(1.0), max_requests=1)
-        started = time.monotonic()
         try:
-            result = replayer.send(request)
+            with store() as s:
+                runtime = SiteRuntime(s, domain, replayer=replayer)
+            if not any(e.key == call.endpoint for e in runtime.endpoints):
+                raise HTTPException(404, "Unknown endpoint")
+            op = next((o for o in runtime.operations() if o.endpoint.key == call.endpoint), None)
+            if op is None:
+                raise HTTPException(
+                    409,
+                    "This endpoint changes data or can't be called outside the browser, so "
+                    "Ghost API never calls it. If you checked it only reads, allow it first.",
+                )
+            started = time.monotonic()
+            result = runtime.call(op, call.params)
+        except OperationError as exc:
+            raise HTTPException(409, str(exc)) from exc
         except ReplayRefused as exc:
             raise HTTPException(400, str(exc)) from exc
         finally:
