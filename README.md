@@ -369,6 +369,21 @@ You'll know the environment is active when your prompt starts with `(.venv)`. Us
 command is blocked or not found, `python -m ghost_api` does the same thing
 (for example `python -m ghost_api doctor`).
 
+**Run it from any folder (Windows).** To start Ghost API by just typing `ghost-api` in
+any Command Prompt or PowerShell window, the way you start `claude`, run this once from
+the project folder:
+
+```bat
+scripts\install-command.cmd
+```
+
+It adds a small `ghost-api` launcher to `%USERPROFILE%\.local\bin` (and puts that folder
+on your PATH if needed). The launcher uses the project's virtual environment, so there's
+nothing to activate, and always works with the project's `.env`, memory and `output\`
+folder. Then open a new window and type `ghost-api` (it asks for a website and a goal),
+`ghost-api ui` for the dashboard, or any command below. On macOS/Linux, `pipx install -e .`
+does the same job.
+
 What `.env` looks like:
 
 ```
