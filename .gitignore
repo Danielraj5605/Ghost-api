@@ -47,3 +47,6 @@ web/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Pages the examples generate when run
+examples/*/*.html
