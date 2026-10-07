@@ -15,6 +15,7 @@ from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import field_paths, top_level_fields
 from ghost_api.export.confidence import confidence
 from ghost_api.memory.store import RunRow, Store
+from ghost_api.site import site_host
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -26,12 +27,15 @@ EMBEDDED_KINDS = ("client", "models", "tests", "openapi")
 SKIPPED_EVENTS = {"request", "endpoints", "screenshot"}
 
 
-def display_label(ep: Endpoint, host: str) -> str:
+def display_label(ep: Endpoint, site: str) -> str:
+    """The label as the site sees it; `site` may be a host or host/section."""
+    host = site_host(site)
     return ep.label if ep.host == host else f"{ep.method} {ep.host}{ep.path_template}"
 
 
-def endpoint_summary(ep: Endpoint, host: str) -> dict[str, Any]:
+def endpoint_summary(ep: Endpoint, site: str) -> dict[str, Any]:
     """Everything an interface needs to show an endpoint, as plain JSON."""
+    host = site_host(site)
     params = [
         {
             "name": p.name,
@@ -55,7 +59,7 @@ def endpoint_summary(ep: Endpoint, host: str) -> dict[str, Any]:
     ]
     return {
         "key": ep.key,
-        "label": display_label(ep, host),
+        "label": display_label(ep, site),
         "method": ep.method,
         "host": ep.host,
         "path": ep.path_template,

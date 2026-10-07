@@ -494,8 +494,15 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 
 ## Output
 
+Results are kept per **site**: the domain, plus the first part of the start URL's path when
+it names a section of the site. `https://hn.algolia.com/` is `hn.algolia.com`, while
+`https://www.google.com/maps` is `www.google.com/maps`, so Maps and Search on the same domain
+keep separate memory and files. IDs, file names (`index.html`) and language codes (`/en/`)
+don't count as sections. Commands accept the site, a URL, or just the domain when it has only
+one site (`ghost-api refresh quotes.toscrape.com`); with several, Ghost API lists them.
+
 ```
-output/quotes.toscrape.com/
+output/quotes.toscrape.com/scroll/
 |-- quotes_toscrape_client.py        # The client class
 |-- models.py                        # Pydantic data models
 |-- test_quotes_toscrape_client.py   # Live tests (run automatically by `run` and `verify`)

@@ -62,3 +62,12 @@ describe("AgentText", () => {
     expect(container.textContent).toBe("The endpoint /api/quotes covers it");
   });
 });
+
+describe("site ids in URLs", () => {
+  it("round-trips a site with a section", async () => {
+    const { siteId, siteFromId } = await import("../api");
+    expect(siteId("www.google.com/maps")).toBe("www.google.com~maps");
+    expect(siteFromId("www.google.com~maps")).toBe("www.google.com/maps");
+    expect(siteId("hn.algolia.com")).toBe("hn.algolia.com");
+  });
+});

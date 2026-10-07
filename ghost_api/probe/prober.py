@@ -180,7 +180,7 @@ class Prober:
                     ep.key,
                     f"header '{header}' is required",
                     "confirmed" if required else "rejected",
-                    f"without it: {_evidence(result)}",
+                    f"without it: {_against(baseline, result)}",
                 )
             )
 
@@ -198,7 +198,7 @@ class Prober:
                     ep.key,
                     f"query parameter '{name}' (a key or token) is required",
                     "confirmed" if required else "rejected",
-                    f"without it: {_evidence(result)}",
+                    f"without it: {_against(baseline, result)}",
                 )
             )
 
@@ -236,8 +236,32 @@ def _evidence(result: ReplayResult) -> str:
     elif result.ok:
         items = detectors.find_items(result.body)
         if items is not None:
-            text += f", {len(items)} records"
+            text += f", {len(items)} record{'' if len(items) == 1 else 's'}"
     return text
+
+
+def _against(baseline: ReplayResult, result: ReplayResult) -> str:
+    """Evidence for "X is required": what came back without X. An HTTP 200 alone would read
+    as "not required", so a different kind of response says how it differs."""
+    text = _evidence(result)
+    if result.ok and not _same(baseline, result):
+        text += (
+            f", but a different response: {_describe(result.body)} "
+            f"instead of {_describe(baseline.body)}"
+        )
+    return text
+
+
+def _describe(body: Any) -> str:
+    if isinstance(body, dict):
+        keys = list(body)
+        if not keys:
+            return "an empty object"
+        more = f" (+{len(keys) - 4} more)" if len(keys) > 4 else ""
+        return "fields " + ", ".join(keys[:4]) + more
+    if isinstance(body, list):
+        return f"a list of {len(body)}"
+    return f"a {type(body).__name__}"
 
 
 def _compare_pages(first: ReplayResult, second: ReplayResult) -> tuple[Outcome, str]:

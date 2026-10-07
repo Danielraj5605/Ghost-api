@@ -14,6 +14,7 @@ from ghost_api.analysis.models import Endpoint
 from ghost_api.export.confidence import confidence
 from ghost_api.generator.spec import ClientSpec
 from ghost_api.memory.store import RunRow, Store
+from ghost_api.site import site_host
 
 RESULT_MARK = {"confirmed": "confirmed", "rejected": "rejected", "inconclusive": "inconclusive"}
 
@@ -88,8 +89,9 @@ def _endpoint_table(endpoints: list[Endpoint], domain: str) -> list[str]:
         "| Endpoint | Status | Confidence | Samples | Auth | Paging | Notes |",
         "|---|---|---|---|---|---|---|",
     ]
+    host = site_host(domain)
     for ep in endpoints:
-        label = ep.label if ep.host == domain else f"{ep.method} {ep.host}{ep.path_template}"
+        label = ep.label if ep.host == host else f"{ep.method} {ep.host}{ep.path_template}"
         paging = "-"
         if ep.pagination:
             mark = "" if ep.pagination.get("confirmed") else " (unconfirmed)"

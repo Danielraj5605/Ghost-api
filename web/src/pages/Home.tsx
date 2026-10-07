@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Bot, ChevronDown, Globe, Sparkles, Target } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, siteId } from "../api";
 import { GhostMark } from "../components/Logo";
 import { Button, Card, cx, EmptyState, ErrorBox, MethodBadge, Pill, plural, Skeleton, timeAgo } from "../components/ui";
 import type { SiteSummary, StartRunRequest } from "../types";
@@ -163,7 +163,7 @@ function SiteCard({ site }: { site: SiteSummary }) {
   const tone = STATUS_TONE[site.latest.status] ?? "bg-ok/15 text-ok";
   return (
     <Link
-      to={`/sites/${encodeURIComponent(site.domain)}`}
+      to={`/sites/${siteId(site.domain)}`}
       className="group block rounded-xl border border-line bg-surface p-4 transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5"
     >
       <div className="flex items-start justify-between gap-2">

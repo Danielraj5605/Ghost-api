@@ -237,6 +237,30 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
   kind of failure, and network errors are matched by their exception names.
 - Endpoint tables printed 9 levels of nested array types; labels now stop at 3 levels.
 
+### 30. ~~One folder and memory for a whole domain~~ (fixed 2026-10-07)
+- **Problem:** A run on `https://www.google.com/maps` was filed under `www.google.com`, so a
+  later run on `/search` would have shared (and overwritten) its memory and files.
+- **Fixed:** Results are kept per site: the host, plus the start path's first segment when it
+  names a section (`www.google.com/maps`). See `ghost_api/site.py`. Data saved before this
+  change stays under its old name and still works. In the dashboard a site's "/" is written
+  as "~" in URLs (`/sites/www.google.com~maps`).
+
+### 31. ~~"Required" header evidence could read like the opposite~~ (fixed 2026-10-07)
+- **Problem:** The report said "header 'content-type' is required (without it: HTTP 200)".
+  The reply without the header was HTTP 200 but a different kind of JSON (an error inside a
+  200), and the evidence didn't say so.
+- **Fixed:** The evidence now names the difference, e.g. "HTTP 200, but a different
+  response: fields error, message instead of fields items, page".
+
+### 32. Positional-array responses can't be repaired (Google Maps)
+- **Problem:** Some Google endpoints (e.g. `/maps/preview/lp`) answer with nested arrays
+  where each position's type changes from call to call. The model inferred from one sample
+  fails on the next reply, and the verifier's repairs (fresh samples, relaxed fields) work on
+  named fields, not array positions, so the endpoint ends up `failed`.
+- **Found:** A no-LLM run on https://www.google.com/maps, 2026-10-07.
+- **Fix:** When a list-of-union model still fails after the repairs, fall back to `Any` for
+  that response (keep the endpoint, drop the typing), and say so in the report.
+
 ---
 
 ## Environment (not code)

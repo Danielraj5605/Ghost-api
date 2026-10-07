@@ -65,6 +65,7 @@ from ghost_api.pipeline import (
     screenshots_dir,
 )
 from ghost_api.probe.replay import Replayer, ReplayRefused, apply_params, is_replayable
+from ghost_api.site import from_url_id, is_site, site_host, to_url_id
 
 STATIC = Path(__file__).parent / "static"
 TOKEN_PLACEHOLDER = "__GHOST_TOKEN__"
@@ -212,10 +213,18 @@ class RunManager:
 # --- reading what is stored -----------------------------------------------------------------
 
 
-def _site_folder(out: Path, domain: str) -> Path:
-    if not SAFE_NAME.match(domain) or domain.startswith("."):
+def _site_name(url_id: str) -> str:
+    """The site from its URL form ('www.google.com~maps' -> 'www.google.com/maps')."""
+    site = from_url_id(url_id)
+    if not is_site(site):
         raise HTTPException(400, "Invalid site name")
-    return out / domain
+    return site
+
+
+def _site_folder(out: Path, site: str) -> Path:
+    if not is_site(site):
+        raise HTTPException(400, "Invalid site name")
+    return out / site
 
 
 def _site_files(out: Path, domain: str) -> list[dict[str, Any]]:
@@ -297,6 +306,7 @@ def create_app(
 
     @app.get("/api/sites/{domain}")
     def site(domain: str) -> dict[str, Any]:
+        domain = _site_name(domain)
         _site_folder(out, domain)
         with store() as s:
             runs = s.list_runs(domain)
@@ -365,10 +375,12 @@ def create_app(
 
     @app.get("/api/sites/{domain}/files")
     def files(domain: str) -> list[dict[str, Any]]:
+        domain = _site_name(domain)
         return _site_files(out, domain)
 
     @app.get("/api/sites/{domain}/files/{name}")
     def file(domain: str, name: str) -> PlainTextResponse:
+        domain = _site_name(domain)
         folder = _site_folder(out, domain)
         if not SAFE_NAME.match(name) or name.startswith("."):
             raise HTTPException(400, "Invalid file name")
@@ -379,6 +391,7 @@ def create_app(
 
     @app.get("/api/sites/{domain}/download.zip")
     def download(domain: str) -> Response:
+        domain = _site_name(domain)
         folder = _site_folder(out, domain)
         listing = _site_files(out, domain)
         if not listing:
@@ -387,11 +400,13 @@ def create_app(
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in listing:
                 zf.write(folder / f["name"], f"{domain}/{f['name']}")
-        headers = {"Content-Disposition": f'attachment; filename="{domain}.zip"'}
+        filename = to_url_id(domain).replace("~", "-")
+        headers = {"Content-Disposition": f'attachment; filename="{filename}.zip"'}
         return Response(buffer.getvalue(), media_type="application/zip", headers=headers)
 
     @app.post("/api/sites/{domain}/generate")
     def regenerate(domain: str, body: Regenerate) -> dict[str, Any]:
+        domain = _site_name(domain)
         _site_folder(out, domain)
         if body.lang not in SUPPORTED_LANGUAGES:
             raise HTTPException(400, f"Unsupported language: {body.lang}")
@@ -405,6 +420,7 @@ def create_app(
     @app.post("/api/sites/{domain}/try")
     def try_endpoint(domain: str, call: TryCall) -> dict[str, Any]:
         """Call an endpoint once, read-only, with the given parameters."""
+        domain = _site_name(domain)
         _site_folder(out, domain)
         with store() as s:
             run_id = s.latest_endpoint_run(domain)
@@ -431,7 +447,7 @@ def create_app(
         request = apply_params(
             sample, target.path_template, {p.name for p in target.path_params}, call.params
         )
-        replayer = Replayer(domain, RateLimiter(1.0), max_requests=1)
+        replayer = Replayer(site_host(domain), RateLimiter(1.0), max_requests=1)
         started = time.monotonic()
         try:
             result = replayer.send(request)

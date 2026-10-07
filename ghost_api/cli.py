@@ -42,6 +42,7 @@ from ghost_api.pipeline import (
     robots_policy,
     round_event,
 )
+from ghost_api.site import SiteAmbiguous, resolve_site, site_host
 from ghost_api.ui.terminal import ACCENT, TerminalRenderer, endpoint_table, print_client
 from ghost_api.verify.verifier import Verifier
 
@@ -157,6 +158,18 @@ def _need_db(db: Path | None) -> Path:
     return path
 
 
+SITE_HELP = "Site explored before, e.g. quotes.toscrape.com or www.google.com/maps"
+
+
+def _site(store: Store, name: str) -> str:
+    """The stored site for what was typed: a site, a URL, or just the domain."""
+    try:
+        return resolve_site(name, {r.domain for r in store.list_runs()})
+    except SiteAmbiguous as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+
 @app.command()
 def run(
     url: Annotated[str, typer.Argument(help="Website to explore, e.g. https://example.com")],
@@ -268,7 +281,7 @@ def run(
 
 @app.command()
 def refresh(
-    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
     headed: Annotated[bool, typer.Option("--headed", help="Show the browser window.")] = False,
     max_steps: Annotated[int, typer.Option(help="Agent steps, if the agent is needed.")] = 10,
     max_llm_calls: Annotated[int, typer.Option(help="Maximum LLM calls.")] = 20,
@@ -298,6 +311,7 @@ def refresh(
     path = _need_db(db)
     lang = _check_lang(lang)
     with Store(path) as store:
+        domain = _site(store, domain)
         mem = load_memory(store, domain)
         if mem is None:
             console.print(f"Nothing remembered for {domain}. Run `ghost-api run` first.")
@@ -329,7 +343,7 @@ def refresh(
             s = open_session(
                 store,
                 bus,
-                domain,
+                site_host(domain),
                 mem.start_url,
                 f"refresh: {mem.goal}",
                 headed,
@@ -340,6 +354,7 @@ def refresh(
                 screens_root=path,
                 mode="refresh",
                 lang=lang,
+                site=domain,
             )
             s.memory = memory_prompt(mem.endpoints, mem.lessons)
             started = time.monotonic()
@@ -374,7 +389,7 @@ def ui(
 
 @app.command()
 def generate(
-    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Use names derived from URLs (no LLM call).")
@@ -389,6 +404,7 @@ def generate(
         gateway = None
     try:
         with Store(path) as store:
+            domain = _site(store, domain)
             if gateway is not None:
                 gateway.store = store
             result = generate_client(store, domain, out, llm=gateway, lang=_check_lang(lang))
@@ -403,7 +419,7 @@ def generate(
 
 @app.command()
 def verify(
-    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
     lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
@@ -416,6 +432,7 @@ def verify(
     path = _need_db(db)
     renderer = TerminalRenderer(console, plain=True)
     with Store(path) as store:
+        domain = _site(store, domain)
         run_id = store.latest_endpoint_run(domain)
         run_row = store.latest_run(domain)
         if run_id is None or run_row is None:
@@ -452,7 +469,7 @@ def verify(
 
 @app.command()
 def report(
-    domain: Annotated[str, typer.Argument(help="Domain explored before, e.g. quotes.toscrape.com")],
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
     run_id: Annotated[
         int | None, typer.Option("--run", help="Run to report on (default: the latest).")
     ] = None,
@@ -462,6 +479,7 @@ def report(
     """Write report.md, report.html and openapi.yaml for a site from what is stored."""
     path = _need_db(db)
     with Store(path) as store:
+        domain = _site(store, domain)
         run_row = store.get_run(run_id) if run_id else store.latest_run(domain)
         if run_row is None or run_row.domain != domain:
             console.print(f"No run found for {domain}.")
@@ -496,7 +514,9 @@ def doctor() -> None:
 
 @app.command()
 def inspect(
-    domain: Annotated[str | None, typer.Argument(help="Domain to show; omit for all.")] = None,
+    domain: Annotated[
+        str | None, typer.Argument(help="Site to show (or its domain); omit for all.")
+    ] = None,
     run_id: Annotated[
         int | None, typer.Option("--run", help="Replay one run's step log and test results.")
     ] = None,
@@ -508,6 +528,7 @@ def inspect(
         _replay_run(path, run_id)
         return
     with Store(path) as store:
+        domain = _site(store, domain) if domain else None
         runs = store.list_runs(domain)
         latest = store.latest_endpoint_run(domain) if domain else None
         endpoints = store.load_endpoints(domain, latest) if domain and latest else []

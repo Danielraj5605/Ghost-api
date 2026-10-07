@@ -51,6 +51,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", body: JSON.stringify(body) });
 
+/** A site ("www.google.com/maps") as one URL path segment ("www.google.com~maps"). */
+export const siteId = (site: string) => encodeURIComponent(site.replace("/", "~"));
+export const siteFromId = (id: string) => id.replace("~", "/");
+
 /** URLs used directly by <img>, <a download> and EventSource (no custom headers). */
 export const withToken = (path: string) =>
   `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token())}`;
@@ -58,17 +62,17 @@ export const withToken = (path: string) =>
 export const api = {
   state: () => request<AppState>("/api/state"),
   sites: () => request<SiteSummary[]>("/api/sites"),
-  site: (domain: string) => request<SiteDetail>(`/api/sites/${encodeURIComponent(domain)}`),
+  site: (domain: string) => request<SiteDetail>(`/api/sites/${siteId(domain)}`),
   file: (domain: string, name: string) =>
-    request<string>(`/api/sites/${encodeURIComponent(domain)}/files/${encodeURIComponent(name)}`),
+    request<string>(`/api/sites/${siteId(domain)}/files/${encodeURIComponent(name)}`),
   startRun: (body: StartRunRequest) => post<{ run_id: number }>("/api/runs", body),
   stopRun: (id: number) => post<{ stopping: boolean }>(`/api/runs/${id}/stop`, {}),
   regenerate: (domain: string, lang: string) =>
-    post<ClientEvent>(`/api/sites/${encodeURIComponent(domain)}/generate`, { lang }),
+    post<ClientEvent>(`/api/sites/${siteId(domain)}/generate`, { lang }),
   tryEndpoint: (domain: string, endpoint: string, params: Record<string, string>) =>
-    post<TryResult>(`/api/sites/${encodeURIComponent(domain)}/try`, { endpoint, params }),
+    post<TryResult>(`/api/sites/${siteId(domain)}/try`, { endpoint, params }),
   doctor: () => post<ProviderCheck[]>("/api/doctor", {}),
   eventsUrl: (id: number) => withToken(`/api/runs/${id}/events`),
   screenUrl: (id: number, name: string) => withToken(`/api/runs/${id}/screens/${name}`),
-  zipUrl: (domain: string) => withToken(`/api/sites/${encodeURIComponent(domain)}/download.zip`),
+  zipUrl: (domain: string) => withToken(`/api/sites/${siteId(domain)}/download.zip`),
 };

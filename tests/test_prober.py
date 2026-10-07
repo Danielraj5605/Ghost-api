@@ -260,3 +260,19 @@ def test_with_path_params() -> None:
 )
 def test_write_words_are_never_replayed(method: str, path: str, ok: bool) -> None:
     assert is_replayable(RawRequest(method, f"https://{HOST}{path}", {}, "{}")) is ok
+
+
+def test_required_evidence_explains_a_200_with_a_different_response() -> None:
+    """Seen on support.google.com: "header 'content-type' is required (without it: HTTP 200)"
+    read as proof of the opposite. The evidence now says what changed."""
+    from ghost_api.probe.prober import _against
+    from ghost_api.probe.replay import ReplayResult
+
+    normal = ReplayResult(200, {"items": [1, 2], "page": 1})
+    error_in_200 = ReplayResult(200, {"error": "bad request", "message": "x"})
+    assert _against(normal, error_in_200) == (
+        "HTTP 200, but a different response: fields error, message instead of fields items, page"
+    )
+    assert _against(normal, ReplayResult(200, {"items": [3], "page": 2})) == "HTTP 200, 1 record"
+    assert _against(normal, ReplayResult(403, {"error": "forbidden"})) == "HTTP 403"
+    assert "a list of 3" in _against(normal, ReplayResult(200, [1, 2, 3]))

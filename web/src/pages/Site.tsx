@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
-import { api } from "../api";
+import { api, siteFromId } from "../api";
 import { CodeBlock, languageFor } from "../components/CodeBlock";
 import { EndpointDetailPanel, EndpointList } from "../components/Endpoints";
 import { TryIt } from "../components/TryIt";
@@ -267,7 +267,7 @@ function LessonsTab({ site }: { site: SiteDetail }) {
 const TAB_IDS: TabId[] = ["endpoints", "code", "docs", "report", "runs", "lessons"];
 
 export function Site() {
-  const domain = useParams().domain ?? "";
+  const domain = siteFromId(useParams().domain ?? "");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const tabParam = params.get("tab") as TabId | null;

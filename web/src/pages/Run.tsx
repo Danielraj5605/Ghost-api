@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Clock, Coins, Cpu, Network, Square } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api } from "../api";
+import { api, siteId } from "../api";
 import { EndpointList } from "../components/Endpoints";
 import { LiveBrowser } from "../components/LiveBrowser";
 import { PhaseStepper } from "../components/PhaseStepper";
@@ -47,7 +47,7 @@ function Summary({ state }: { state: RunState }) {
           </p>
           {f.generation_error && <p className="mt-1 text-sm text-bad">{f.generation_error}</p>}
         </div>
-        <Link to={`/sites/${encodeURIComponent(state.domain)}`}>
+        <Link to={`/sites/${siteId(state.domain)}`}>
           <Button variant="primary">
             Open results <ArrowRight className="size-4" />
           </Button>

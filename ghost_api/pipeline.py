@@ -59,6 +59,7 @@ from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
 from ghost_api.probe.prober import Prober, ProbeReport
 from ghost_api.probe.replay import Replayer, is_replayable
+from ghost_api.site import site_key
 from ghost_api.verify.verifier import Round, Verifier
 
 # With no agent, the page is just loaded and scrolled to the bottom this many times.
@@ -128,7 +129,7 @@ class Session:
     store: Store
     bus: EventBus
     run_id: int
-    host: str
+    host: str  # the server: first-party vs third-party, robots.txt
     start_url: str
     goal: str
     headed: bool
@@ -140,6 +141,7 @@ class Session:
     stop: Callable[[], bool] | None = None  # e.g. the dashboard's Stop button
     memory: str = ""
     steps: list[StepRecord] = field(default_factory=list)
+    site: str = ""  # memory and output folder: host or host/section (ghost_api/site.py)
 
     def emit(self, event: Event) -> None:
         self.bus.emit(event)
@@ -254,9 +256,13 @@ def open_session(
     screens_root: Path | None = None,
     mode: str = "run",
     lang: str = "python",
+    site: str | None = None,
 ) -> Session:
-    """Create the run in the database and start recording its events."""
-    run_id = store.create_run(host, start_url, goal)
+    """Create the run in the database and start recording its events.
+
+    `site` defaults to the start URL's site; a refresh passes the name its memory is under."""
+    site = site or site_key(start_url) or host
+    run_id = store.create_run(site, start_url, goal)
     bus.subscribe(lambda event: store.add_event(run_id, event.to_dict()))
     if gateway is not None:
         gateway.store = store  # cache LLM answers in the same database
@@ -281,9 +287,10 @@ def open_session(
         replayer,
         gateway,
         screens,
+        site=site,
     )
     bus.emit(
-        RunStarted(run_id, host, start_url, goal, "refresh" if mode == "refresh" else "run", lang)
+        RunStarted(run_id, site, start_url, goal, "refresh" if mode == "refresh" else "run", lang)
     )
     return session
 
@@ -390,36 +397,36 @@ class FinishResult:
 
 
 def finish(s: Session, status: str, reason: str, started: float, opts: RunOptions) -> FinishResult:
-    store, host = s.store, s.host
+    store, site = s.store, s.site
     reports: dict[str, ProbeReport] = {}
     if not opts.no_probe and status not in STOPPED:
         s.phase("test")
         reports = probe_all(s)
 
     endpoints = analyze(s.recorder.captured)
-    store.save_endpoints(host, s.run_id, endpoints)
+    store.save_endpoints(site, s.run_id, endpoints)
     for ep in endpoints:
         report = reports.get(ep.key)
         if report is not None:
             apply_probe(ep, report)
-            store.save_probe_report(host, s.run_id, ep, report)
-    s.emit(EndpointsUpdated([endpoint_summary(e, host) for e in endpoints]))
+            store.save_probe_report(site, s.run_id, ep, report)
+    s.emit(EndpointsUpdated([endpoint_summary(e, site) for e in endpoints]))
 
     generated: GenerationResult | None = None
     generation_error = ""
     if not opts.no_generate and endpoints and status not in ("interrupted", "bot-protection"):
         s.phase("generate")
-        plan = plan_for(store, s.gateway, host, endpoints)
+        plan = plan_for(store, s.gateway, site, endpoints)
         try:
             if opts.no_verify:
                 generated = generate_from(
-                    host, s.start_url, endpoints, s.recorder.captured, opts.out, plan, opts.lang
+                    site, s.start_url, endpoints, s.recorder.captured, opts.out, plan, opts.lang
                 )
             else:
                 s.phase("verify")
                 s.emit(Notice("Verifying the generated client against the live API..."))
                 verifier = Verifier(
-                    host,
+                    site,
                     s.start_url,
                     endpoints,
                     s.recorder.captured,
@@ -435,12 +442,12 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
                 verification = verifier.run()
                 generated = verification.result
                 endpoints = verifier.endpoints
-                store.save_endpoints(host, s.run_id, endpoints)  # e.g. relaxed schemas
+                store.save_endpoints(site, s.run_id, endpoints)  # e.g. relaxed schemas
                 for ep in endpoints:
                     state, note = verification.statuses.get(ep.key, ("unverified", ""))
                     ep.status, ep.status_note = state, note
-                    store.set_endpoint_status(host, ep, state, note)
-                s.emit(EndpointsUpdated([endpoint_summary(e, host) for e in endpoints]))
+                    store.set_endpoint_status(site, ep, state, note)
+                s.emit(EndpointsUpdated([endpoint_summary(e, site) for e in endpoints]))
         except (NothingToGenerate, GenerationError) as exc:
             generation_error = str(exc)
             s.emit(Notice(f"No client generated: {exc}", "warning"))
@@ -451,18 +458,18 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
     # Workflow stage 8: remember what was learned.
     s.phase("learn")
     auto = discovery_lessons([(r.action, r.args, r.new_endpoints) for r in s.steps])
-    learned = store.add_lessons(host, s.run_id, auto, "auto")
+    learned = store.add_lessons(site, s.run_id, auto, "auto")
     if s.gateway is not None and len(s.steps) >= MIN_STEPS_FOR_LESSONS:
         texts = write_lessons(
             s.gateway, s.goal, status, [(r.action, r.args, r.result) for r in s.steps], endpoints
         )
-        learned += store.add_lessons(host, s.run_id, texts, "llm")
+        learned += store.add_lessons(site, s.run_id, texts, "llm")
     store.finish_run(s.run_id, status)
     if s.gateway is not None:
         store.record_usage(s.run_id, s.gateway.usage.answered, s.gateway.usage.tokens)
         s.emit(usage_event(s.gateway))
         s.gateway.close()
-    exports = write_exports(store, host, s.run_id, opts.out, generated.spec if generated else None)
+    exports = write_exports(store, site, s.run_id, opts.out, generated.spec if generated else None)
 
     s.emit(
         RunFinished(

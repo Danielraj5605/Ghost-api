@@ -87,12 +87,16 @@ def _is_ip(host: str) -> bool:
 
 
 def default_client_name(domain: str) -> str:
-    """'quotes.toscrape.com' -> 'QuotesToscrapeClient'; 'hn.algolia.com' -> 'HnAlgoliaClient'."""
-    host = domain.lower().split(":")[0].strip("[]")
+    """'quotes.toscrape.com' -> 'QuotesToscrapeClient'; 'hn.algolia.com' -> 'HnAlgoliaClient';
+    a site with a section: 'www.google.com/maps' -> 'GoogleMapsClient'."""
+    host, _, section = domain.partition("/")
+    host = host.lower().split(":")[0].strip("[]")
     if host == "localhost" or _is_ip(host):
-        return "LocalClient"  # '127.0.0.1' would otherwise give 'M1270Client'
-    labels = [p for p in domain.lower().split(".") if p not in ("www", "com", "org", "net", "io")]
-    return pascal("_".join(labels[:2]) or "api") + "Client"
+        base = "local"  # '127.0.0.1' would otherwise give 'M1270Client'
+    else:
+        labels = [p for p in host.split(".") if p not in ("www", "com", "org", "net", "io")]
+        base = "_".join(labels[:2]) or "api"
+    return pascal(f"{base}_{section}" if section else base) + "Client"
 
 
 def unique(name: str, used: set[str]) -> str:
