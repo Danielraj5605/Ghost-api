@@ -62,6 +62,7 @@ export interface EndpointDetail extends EndpointSummary {
   callable?: boolean; // Ghost API may call it (reads data, or the user allowed it)
   allowed?: boolean; // the user checked it only reads (a POST search)
   inputs?: EndpointInput[];
+  operation?: string; // name for fetch / watch / serve / mcp
 }
 
 export interface EndpointInput {

@@ -8,6 +8,7 @@ import { api, siteFromId } from "../api";
 import { CodeBlock, languageFor } from "../components/CodeBlock";
 import { EndpointDetailPanel, EndpointList } from "../components/Endpoints";
 import { ExposureBanner } from "../components/Exposure";
+import { OtherTools } from "../components/OtherTools";
 import { TryIt } from "../components/TryIt";
 import {
   bytes,
@@ -24,7 +25,7 @@ import {
 } from "../components/ui";
 import type { SiteDetail, SiteFile } from "../types";
 
-type TabId = "endpoints" | "code" | "docs" | "report" | "runs" | "lessons";
+type TabId = "endpoints" | "tools" | "code" | "docs" | "report" | "runs" | "lessons";
 
 function useFile(domain: string, name: string | undefined) {
   return useQuery({
@@ -265,7 +266,7 @@ function LessonsTab({ site }: { site: SiteDetail }) {
   );
 }
 
-const TAB_IDS: TabId[] = ["endpoints", "code", "docs", "report", "runs", "lessons"];
+const TAB_IDS: TabId[] = ["endpoints", "tools", "code", "docs", "report", "runs", "lessons"];
 
 export function Site() {
   const domain = siteFromId(useParams().domain ?? "");
@@ -332,6 +333,7 @@ export function Site() {
         onChange={(id) => setParams(id === "endpoints" ? {} : { tab: id }, { replace: true })}
         tabs={[
           { id: "endpoints", label: "Endpoints", count: visible.length },
+          { id: "tools", label: "Use it elsewhere" },
           { id: "code", label: "Client code" },
           { id: "docs", label: "API docs" },
           { id: "report", label: "Report" },
@@ -346,6 +348,7 @@ export function Site() {
       {tab === "report" && <ReportTab site={s} />}
       {tab === "runs" && <RunsTab site={s} />}
       {tab === "lessons" && <LessonsTab site={s} />}
+      {tab === "tools" && <OtherTools site={s.domain} endpoints={s.endpoints} />}
 
       <p className="text-xs text-muted">
         Files: {s.files.map((f) => `${f.name} (${bytes(f.size)})`).join(" · ") || "none"}

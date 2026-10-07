@@ -113,3 +113,20 @@ describe("Watch changes", () => {
     expect(screen.getByLabelText("New")).toBeTruthy();
   });
 });
+
+describe("OtherTools", () => {
+  it("builds copy-paste commands for a site with a section", async () => {
+    const { OtherTools } = await import("./OtherTools");
+    const endpoint = {
+      key: "k", label: "POST /x", method: "POST", host: "web-gateway.turftown.in", path: "/x",
+      third_party: false, callable: true, operation: "get_nearby_venues",
+      inputs: [{ name: "area", location: "body", type: "str", example: "velachery", required: false }],
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<OtherTools site="turftown.in/chennai" endpoints={[endpoint as any]} />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("ghost-api fetch turftown.in/chennai get_nearby_venues area=velachery --format xlsx");
+    expect(text).toContain("http://127.0.0.1:8900/turftown.in~chennai/get_nearby_venues?format=csv");
+    expect(text).toContain("claude mcp add ghost-turftown -- ghost-api mcp turftown.in/chennai");
+  });
+});

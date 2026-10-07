@@ -25,6 +25,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = ["mcp>=1.2"]          # `ghost-api mcp`: sites as tools for AI assistants
+notify = ["plyer>=2.1"]     # desktop notifications for `ghost-api watch`
 dev = [
     "pytest>=8", "ruff>=0.6", "mypy>=1.11", "openapi-spec-validator>=0.7", "types-PyYAML",
     "psutil>=5.9", "types-psutil",

@@ -1,5 +1,5 @@
 """Command-line entry point: `ghost-api [run | refresh | generate | verify | report | inspect |
-fetch | watch | doctor | ui]`. With no command, asks for a URL and goal interactively.
+fetch | watch | serve | mcp | doctor | ui]`. With no command, asks for a URL and goal interactively.
 
 The workflow itself lives in `ghost_api/pipeline.py` and emits events; this module parses
 options and renders those events with `ghost_api/ui/terminal.py`.
@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import typer
@@ -825,6 +825,70 @@ def watch_schedule(
         else f'Windows will check due watches every {every} (task "{TASK_NAME}"). '
         "Remove it with `ghost-api watch schedule --remove`."
     )
+
+
+def _served(store_path: Path, sites: list[str] | None, quiet: Console) -> dict[str, Any]:
+    from ghost_api.serve import load_sites
+
+    with Store(store_path) as store:
+        names = [_site(store, s) for s in sites] if sites else None
+    try:
+        served = load_sites(store_path, names)
+    except OperationError as exc:
+        quiet.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    if not served:
+        quiet.print("Nothing to serve: no stored site has endpoints Ghost API can call.")
+        raise typer.Exit(code=1)
+    return served
+
+
+@app.command()
+def serve(
+    sites: Annotated[
+        list[str] | None, typer.Argument(help="Sites to serve (default: all stored sites).")
+    ] = None,
+    port: Annotated[int, typer.Option(help="Port on this computer.")] = 8900,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Serve sites as a clean local REST API (for Excel, scripts, any language)."""
+    import uvicorn
+
+    from ghost_api.serve.rest import create_rest_app
+    from ghost_api.site import to_url_id
+
+    served = _served(_need_db(db), sites, console)
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    base = f"http://127.0.0.1:{port}"
+    console.print(f"[bold {ACCENT}]◆ Ghost API REST[/]  {base}   docs: {base}/docs")
+    for s in served.values():
+        for op in s.operations:
+            console.print(f"  GET {base}/{to_url_id(s.site)}/{op.name}", markup=False)
+    console.print("[dim]Add &format=csv for spreadsheets. Local only. Ctrl+C to stop.[/]")
+    uvicorn.run(create_rest_app(served, hosts), host="127.0.0.1", port=port, log_level="warning")
+
+
+@app.command()
+def mcp(
+    sites: Annotated[
+        list[str] | None, typer.Argument(help="Sites to offer (default: all stored sites).")
+    ] = None,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Offer sites as tools to AI assistants (MCP over stdio), e.g. for Claude Code:
+    claude mcp add ghost -- ghost-api mcp turftown.in/chennai"""
+    import anyio
+
+    stderr = Console(stderr=True)  # stdout carries the protocol
+    try:
+        from ghost_api.serve.mcp import run_stdio
+    except ImportError as exc:
+        stderr.print('The MCP server needs the mcp package: pip install "mcp>=1.2"')
+        raise typer.Exit(code=1) from exc
+    served = _served(_need_db(db), sites, stderr)
+    count = sum(len(s.operations) for s in served.values())
+    stderr.print(f"Ghost API MCP server: {count} tool(s) from {', '.join(served)}")
+    anyio.run(run_stdio, served)
 
 
 @app.command()

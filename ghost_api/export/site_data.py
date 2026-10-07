@@ -17,8 +17,9 @@ from ghost_api.analysis.exposure import exposures
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import field_paths, top_level_fields
 from ghost_api.export.confidence import confidence
+from ghost_api.generator.naming import apply_plan
 from ghost_api.memory.store import RunRow, Store
-from ghost_api.runtime import inputs_for, is_callable
+from ghost_api.runtime import inputs_for, is_callable, load_plan
 from ghost_api.site import site_host
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -98,6 +99,7 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
     for key, req in zip(endpoint_keys(requests), requests, strict=False):
         samples.setdefault(key, []).append(req)
     allowed = store.allowed_endpoints(domain)
+    _, names = apply_plan(load_plan(store.load_naming_plan(domain)), endpoints, domain)
     for ep in endpoints:
         summary = endpoint_summary(ep, domain)
         summary.update(
@@ -108,6 +110,7 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
             # For Try it / Get data: can Ghost API call it, and with which inputs.
             callable=is_callable(ep, ep.key in allowed),
             allowed=ep.key in allowed,
+            operation=names[ep.key].method_name,  # for fetch / watch / serve / mcp
             inputs=[asdict(i) for i in inputs_for(ep, samples.get(ep.key, []))],
         )
         details.append(summary)

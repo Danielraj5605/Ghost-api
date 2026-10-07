@@ -87,7 +87,7 @@ class SiteRuntime:
             raise OperationError(f"Nothing stored for {site}. Run `ghost-api run` first.")
         self.endpoints = store.load_endpoints(site, run_id)
         self.allowed = store.allowed_endpoints(site)
-        plan = _plan(store.load_naming_plan(site))
+        plan = load_plan(store.load_naming_plan(site))
         _, self.names = apply_plan(plan, self.endpoints, site)
         stored = store.requests_for_domain(site)
         self.samples: dict[str, list[CapturedRequest]] = {}
@@ -344,7 +344,7 @@ def _json_body(samples: list[CapturedRequest]) -> dict[str, Any] | None:
     return None
 
 
-def _plan(stored: str | None) -> NamingPlan | None:
+def load_plan(stored: str | None) -> NamingPlan | None:
     if not stored:
         return None
     try:
