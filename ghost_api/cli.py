@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 
 import typer
 from rich.console import Console
-from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -46,7 +45,13 @@ from ghost_api.pipeline import (
 from ghost_api.probe.replay import ReplayRefused
 from ghost_api.runtime import OperationError, SiteRuntime
 from ghost_api.site import SiteAmbiguous, resolve_site, site_host
-from ghost_api.ui.terminal import ACCENT, TerminalRenderer, endpoint_table, print_client
+from ghost_api.ui.terminal import (
+    ACCENT,
+    TerminalRenderer,
+    endpoint_table,
+    file_link,
+    print_client,
+)
 from ghost_api.verify.verifier import Verifier
 
 app = typer.Typer(
@@ -55,11 +60,6 @@ app = typer.Typer(
 )
 console = Console()
 _options = {"plain": False}
-
-EXAMPLES = [
-    ("https://quotes.toscrape.com/scroll", "list quotes with their authors and tags"),
-    ("https://hn.algolia.com/", "search Hacker News stories and comments"),
-]
 
 
 def _version(value: bool) -> None:
@@ -87,7 +87,7 @@ def main(
         if not sys.stdin.isatty():
             console.print(ctx.get_help())
             raise typer.Exit()
-        _interactive(ctx)
+        _interactive()
 
 
 def safe_output(stream: object) -> None:
@@ -99,24 +99,33 @@ def safe_output(stream: object) -> None:
         reconfigure(errors="replace")
 
 
-def _interactive(ctx: typer.Context) -> None:
-    """`ghost-api` on its own: ask what to explore, then run."""
-    console.print(
-        Text.assemble(
-            ("◆ Ghost API ", f"bold {ACCENT}"), ("turn any website into a typed API client", "dim")
-        )
-    )
-    console.print(Text("  Examples:", style="dim"))
-    for url, goal in EXAMPLES:
-        console.print(Text(f"    {url}  ·  {goal}", style="dim"))
-    console.print()
-    url = Prompt.ask(f"[{ACCENT}]Website[/]", default=EXAMPLES[0][0])
-    default_goal = next((g for u, g in EXAMPLES if u == url), "list the main data on this site")
-    goal = Prompt.ask(f"[{ACCENT}]Goal[/]", default=default_goal)
-    lang = Prompt.ask(
-        f"[{ACCENT}]Client language[/]", choices=list(SUPPORTED_LANGUAGES), default="python"
-    )
-    ctx.invoke(run, url=url, goal=goal, lang=lang)
+def _invoke(args: list[str]) -> None:
+    """Run `ghost-api ARGS...` inside this process (the interactive session's commands)."""
+    command = typer.main.get_command(app)
+    try:
+        command.main(args=args, prog_name="ghost-api", standalone_mode=False)
+    except typer.Abort:
+        console.print("[yellow]Stopped.[/]")
+    except typer.Exit:
+        pass
+    except typer.TyperException as exc:  # usage errors: missing argument, unknown option...
+        format_message = getattr(exc, "format_message", None)
+        message = format_message() if callable(format_message) else str(exc)
+        console.print(f"[red]{message}[/]  [dim](see /help)[/]")
+
+
+def _interactive() -> None:
+    """`ghost-api` on its own: a session that stays open until /exit or Ctrl+C twice."""
+    from ghost_api.ui import keys
+    from ghost_api.ui.repl import Repl, run_session
+
+    def ask(question: str) -> str:
+        with keys.input_paused():
+            return console.input(f"[bold]{question}[/]")
+
+    repl = Repl(console, _invoke, ask)
+    has_llm = any(p.api_key for p in default_providers())
+    run_session(console, repl, has_llm, history_file=Path.home() / ".ghost-api" / "history.txt")
 
 
 def _renderer() -> TerminalRenderer:
@@ -508,9 +517,9 @@ def report(
             console.print(f"No run found for {domain}.")
             raise typer.Exit(code=1)
         exports = write_exports(store, domain, run_row.id, out)
-    console.print(f"Report:  {exports.report}")
+    console.print(Text("Report:  ") + file_link(exports.report))
     if exports.html:
-        console.print(f"Report (shareable page): {exports.html}")
+        console.print(Text("Report (shareable page): ") + file_link(exports.html))
     console.print(f"OpenAPI: {exports.openapi}")
 
 
@@ -604,10 +613,9 @@ def fetch(
     stamp = time.strftime("%Y%m%d-%H%M%S")
     target = save_to or out / domain / "data" / f"{op.name}-{stamp}.{fmt}"
     tabular.write(records, target, fmt)
-    console.print(
-        f"[bold green]Saved {len(records)} rows[/] to {target}"
-        + (f"  [dim]({hidden} personal values hidden)[/]" if hidden else "")
-    )
+    console.print(Text(f"Saved {len(records)} rows: ", style="bold green") + file_link(target))
+    if hidden:
+        console.print(f"[dim]{hidden} personal values hidden[/]")
 
 
 watch_app = typer.Typer(

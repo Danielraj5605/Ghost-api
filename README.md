@@ -424,9 +424,15 @@ they keep personal data hidden unless you pass `--include-sensitive` for your ow
 
 ## Three ways to see the results
 
-**1. The terminal.** `ghost-api run ...`, or just `ghost-api` to be asked for a URL and a
-goal. It shows each phase and agent step as it happens, with a status line that updates in
-place, and ends with a summary card. Add `--plain` for simple lines (logs, CI).
+**1. The terminal.** Type `ghost-api` and a session opens, like Claude Code or Gemini CLI.
+Paste a website and what you want ("quotes.toscrape.com/scroll list quotes with their
+authors"), watch each phase and agent step as it happens, and get a summary card with
+**clickable links** to the report and the files (Ctrl+click in Windows Terminal or VS Code;
+the full `file:///` link is shown either way). Then keep going: `/fetch` the data, `/watch
+add` alerts, `/open` the report, or paste another site. The session stays open until you
+type `/exit` or press **Ctrl+C twice**; a single Ctrl+C only stops what's running. `/help`
+lists the commands, Tab completes them, and the arrow keys bring back earlier lines.
+`ghost-api run ...` still does a single run, and `--plain` gives simple lines for logs.
 
 ![The terminal UI after a real run on quotes.toscrape.com](docs/images/terminal-run.svg)
 
@@ -507,7 +513,7 @@ ghost-api mcp quotes.toscrape.com              # MCP server for AI assistants (s
 ghost-api ui
 ghost-api ui --port 8900 --no-open
 
-# Ask for the URL and goal interactively
+# The interactive session (stays open until /exit or Ctrl+C twice)
 ghost-api
 
 # Simple line-by-line output for logs and CI
@@ -516,6 +522,19 @@ ghost-api --plain run https://quotes.toscrape.com/scroll --goal "list quotes"
 # Capture without the AI agent (just load and scroll)
 ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 ```
+
+Inside the session:
+
+| Type | It does |
+|---|---|
+| `quotes.toscrape.com/scroll list quotes with their authors` | Explores the site for that goal |
+| more words after a run | A new goal for the same site |
+| `/fetch [SITE] [OPERATION] [name=value ...]` | Downloads data (the current site if none is given) |
+| `/watch add ...`, `/watch` | Alerts, and your list of watches |
+| `/open`, `/report` | Opens or rewrites the current site's report |
+| `/sites`, `/inspect`, `/refresh`, `/generate`, `/serve`, `/ui`, `/doctor` | Same as the `ghost-api` commands |
+| `/lang typescript`, `/agent off` | Settings for the next runs |
+| `/help`, `/clear`, `/exit` | Help, clear the screen, end (or Ctrl+C twice) |
 
 | Option | Default | Meaning |
 |---|---|---|

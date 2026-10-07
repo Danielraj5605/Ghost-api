@@ -13,6 +13,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, Group, RenderableType
@@ -37,6 +38,7 @@ from ghost_api.events import (
     UsageUpdated,
     VerifyRound,
 )
+from ghost_api.ui import keys
 
 ACCENT = "#a78bfa"  # ghost violet, shared with the web dashboard
 METHOD_STYLE = {
@@ -73,6 +75,30 @@ STEPPER = ("explore", "test", "generate", "verify", "learn")
 
 def method_text(method: str) -> Text:
     return Text(f"{method:<6}", style=METHOD_STYLE.get(method, "bold"))
+
+
+# Set by the interactive session (ui/repl.py), so hints name its /commands.
+SESSION = {"active": False}
+
+
+def _next_steps() -> str:
+    if SESSION["active"]:
+        return "Next: /fetch to download the data · /watch add for alerts · /ui for the dashboard"
+    return "Next: ghost-api fetch SITE (download the data) · ghost-api ui (open the dashboard)"
+
+
+def file_url(path: str | Path) -> str:
+    """A local path as a file:/// URL: E:/workspace/.../report.html."""
+    return Path(path).resolve().as_uri()
+
+
+def file_link(path: str | Path, label: str | None = None) -> Text:
+    """A clickable link to a local file (Ctrl+click in Windows Terminal, VS Code...).
+    The text is the full file:/// URL, so terminals without links can still copy it."""
+    if not str(path):
+        return Text("")
+    url = file_url(path)
+    return Text(label or url, style=f"link {url} underline")
 
 
 def endpoint_table(endpoints: list[dict[str, Any]], title: str | None = None) -> Table:
@@ -144,7 +170,7 @@ class TerminalRenderer:
                 self.start()
 
     def ask(self, question: str) -> str:
-        with self.paused():
+        with self.paused(), keys.input_paused():
             self.console.print(f"\n[bold yellow]The agent asks:[/] {question}")
             return self.console.input("[bold]Your answer[/] (press Enter when done): ")
 
@@ -363,7 +389,7 @@ class TerminalRenderer:
                 body.append(Text.assemble(("  ", ""), (sig, ACCENT), (extra, "dim")))
             for cred in c.credentials:
                 body.append(Text(f"  needs {cred['arg']}: set {cred['env']}", style="yellow"))
-            body += [Text(""), Text.assemble(("Files   ", "dim"), c.directory)]
+            body += [Text(""), Text("Files   ", style="dim") + file_link(c.directory)]
             body.append(Text("Use it  ", style="dim") + Text(_use_it(c), style="bold"))
         elif e.generation_error:
             body += [Text(""), Text(f"No client generated: {e.generation_error}", style="yellow")]
@@ -376,9 +402,11 @@ class TerminalRenderer:
                     style="dim",
                 ),  # fmt: skip
             ]
-        body.append(Text.assemble(("Report  ", "dim"), e.report_html or e.report))
+        body.append(Text("Report  ", style="dim") + file_link(e.report_html or e.report))
         if e.report_html:
-            body.append(Text("        one file: open it in a browser or share it", style="dim"))
+            body.append(
+                Text("        Ctrl+click to open it in your browser, or /open", style="dim")
+            )
         if e.lessons_learned:
             body.append(
                 Text(f"Remembered {e.lessons_learned} lesson(s) for next time", style="dim")
@@ -392,7 +420,10 @@ class TerminalRenderer:
                     style="dim",
                 )
             )
-        body += [Text(""), Text("Next: ghost-api ui  (open the dashboard)", style=f"dim {ACCENT}")]
+        body += [
+            Text(""),
+            Text(_next_steps(), style=f"dim {ACCENT}"),
+        ]
         return Panel(
             Group(*body), title=title, title_align="left", border_style=ACCENT, padding=(1, 2)
         )
@@ -421,7 +452,7 @@ class TerminalRenderer:
             self.console.print(
                 f"[dim]Remembered {e.lessons_learned} new lesson(s) for next time[/]"
             )
-        self.console.print(f"[dim]Report: {e.report_html or e.report}   OpenAPI: {e.openapi}[/]")
+        self.console.print(Text("Report: ", style="dim") + file_link(e.report_html or e.report))
         if self.usage is not None:
             u = self.usage
             providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"
