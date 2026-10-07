@@ -2,6 +2,10 @@ import type {
   AppState,
   ClientEvent,
   DataFormat,
+  NewWatch,
+  Watch,
+  WatchChange,
+  WatchCheck,
   ProviderCheck,
   SiteDetail,
   SiteSummary,
@@ -73,6 +77,10 @@ export const api = {
   tryEndpoint: (domain: string, endpoint: string, params: Record<string, string>) =>
     post<TryResult>(`/api/sites/${siteId(domain)}/try`, { endpoint, params }),
   doctor: () => post<ProviderCheck[]>("/api/doctor", {}),
+  watches: () => request<{ watches: Watch[]; changes: WatchChange[] }>("/api/watches"),
+  addWatch: (body: NewWatch) => post<{ watch: Watch; check: WatchCheck }>("/api/watches", body),
+  checkWatch: (id: number) => post<WatchCheck>(`/api/watches/${id}/check`, {}),
+  removeWatch: (id: number) => request<{ removed: boolean }>(`/api/watches/${id}`, { method: "DELETE" }),
   allow: (domain: string, endpoint: string, allowed: boolean) =>
     post<{ allowed: boolean }>(`/api/sites/${siteId(domain)}/allow`, { endpoint, allowed }),
   /** All pages as a file; resolves when the browser has been handed the download. */

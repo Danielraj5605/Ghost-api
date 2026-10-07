@@ -10,6 +10,7 @@ import { Home } from "./pages/Home";
 // Heavier pages (code highlighting, Markdown) load on first visit.
 const Run = lazy(() => import("./pages/Run").then((m) => ({ default: m.Run })));
 const Site = lazy(() => import("./pages/Site").then((m) => ({ default: m.Site })));
+const Watches = lazy(() => import("./pages/Watches").then((m) => ({ default: m.Watches })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 
 const queryClient = new QueryClient({
@@ -36,6 +37,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/" element={<Home />} />
               <Route path="/runs/:id" element={<Run />} />
               <Route path="/sites/:domain" element={<Site />} />
+              <Route path="/watches" element={<Watches />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

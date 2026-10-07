@@ -98,3 +98,18 @@ describe("Exposure", () => {
     );
   });
 });
+
+describe("Watch changes", () => {
+  it("shows new, changed (before → after) and gone", async () => {
+    const { ChangeLine } = await import("../pages/Watches");
+    render(
+      <ul>
+        <ChangeLine change={{ kind: "changed", key: "id:3", title: "Tiki Taka", fields: { avg_price: [214, 200] } }} />
+        <ChangeLine change={{ kind: "new", key: "id:9", title: "New Turf", fields: {} }} />
+      </ul>,
+    );
+    expect(screen.getByText("Tiki Taka")).toBeTruthy();
+    expect(screen.getByText("avg_price").parentElement?.textContent).toBe("avg_price: 214 → 200");
+    expect(screen.getByLabelText("New")).toBeTruthy();
+  });
+});

@@ -74,6 +74,54 @@ export interface EndpointInput {
 
 export type DataFormat = "csv" | "xlsx" | "json";
 
+export interface Watch {
+  id: number;
+  site: string;
+  site_id: string;
+  operation: string;
+  params: Record<string, string>;
+  every: string;
+  every_minutes: number;
+  notify: string[];
+  track: string[];
+  max_pages: number;
+  created_at: string;
+  last_check_at: string | null;
+  last_status: string | null;
+  due: boolean;
+  describe: string;
+}
+
+export interface WatchChange {
+  kind: "new" | "changed" | "gone";
+  key: string;
+  title: string;
+  fields: Record<string, [unknown, unknown]>;
+  watch_id?: number;
+  at?: string;
+}
+
+export interface WatchCheck {
+  watch_id: number;
+  headline: string;
+  rows: number;
+  baseline: boolean;
+  complete: boolean;
+  error: string;
+  counts: { new: number; changed: number; gone: number };
+  changes: WatchChange[];
+  notified: string[];
+}
+
+export interface NewWatch {
+  site: string;
+  endpoint: string;
+  params: Record<string, string>;
+  every: string;
+  notify: string[];
+  pages: number;
+}
+
 /** Personal data an endpoint returned; Ghost API hid the values (capture/personal.py). */
 export interface Exposure {
   endpoint: string;

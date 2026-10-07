@@ -139,6 +139,40 @@ CREATE TABLE IF NOT EXISTS allowed_endpoints (
     PRIMARY KEY (domain, endpoint_key)
 );
 
+-- Watches: re-check an endpoint on a schedule and record what changed (ghost_api/watch.py).
+CREATE TABLE IF NOT EXISTS watches (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain        TEXT NOT NULL,
+    operation     TEXT NOT NULL,
+    params        TEXT NOT NULL DEFAULT '{}',
+    every_minutes INTEGER NOT NULL DEFAULT 360,
+    notify        TEXT NOT NULL DEFAULT '[]',
+    track         TEXT NOT NULL DEFAULT '[]',
+    max_pages     INTEGER NOT NULL DEFAULT 5,
+    created_at    TEXT NOT NULL,
+    last_check_at TEXT,
+    last_status   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS watch_items (
+    watch_id   INTEGER NOT NULL,
+    item_key   TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    last_seen  TEXT NOT NULL,
+    gone_at    TEXT,
+    PRIMARY KEY (watch_id, item_key)
+);
+
+CREATE TABLE IF NOT EXISTS watch_changes (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_id INTEGER NOT NULL,
+    at       TEXT NOT NULL,
+    kind     TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    summary  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_run ON requests(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_domain ON runs(domain);
 """
@@ -167,6 +201,22 @@ class RunRow:
     request_count: int
     llm_calls: int = 0
     tokens: int = 0
+
+
+def _watch(r: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": r["id"],
+        "site": r["domain"],
+        "operation": r["operation"],
+        "params": json.loads(r["params"]),
+        "every_minutes": r["every_minutes"],
+        "notify": json.loads(r["notify"]),
+        "track": json.loads(r["track"]),
+        "max_pages": r["max_pages"],
+        "created_at": r["created_at"],
+        "last_check_at": r["last_check_at"],
+        "last_status": r["last_status"],
+    }
 
 
 def _now() -> str:
@@ -567,6 +617,96 @@ class Store:
             "SELECT endpoint_key FROM allowed_endpoints WHERE domain = ?", (domain,)
         )
         return {str(r["endpoint_key"]) for r in rows}
+
+    # --- watches (ghost_api/watch.py) ---
+
+    def add_watch(self, watch: dict[str, Any]) -> int:
+        cur = self.conn.execute(
+            """INSERT INTO watches (domain, operation, params, every_minutes, notify, track,
+                   max_pages, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                watch["site"], watch["operation"], json.dumps(watch.get("params") or {}),
+                watch.get("every_minutes", 360), json.dumps(watch.get("notify") or []),
+                json.dumps(watch.get("track") or []), watch.get("max_pages", 5), _now(),
+            ),
+        )  # fmt: skip
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    def watches(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM watches ORDER BY id")
+        return [_watch(r) for r in rows]
+
+    def get_watch(self, watch_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute("SELECT * FROM watches WHERE id = ?", (watch_id,)).fetchone()
+        return _watch(row) if row else None
+
+    def remove_watch(self, watch_id: int) -> bool:
+        cur = self.conn.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
+        self.conn.execute("DELETE FROM watch_items WHERE watch_id = ?", (watch_id,))
+        self.conn.execute("DELETE FROM watch_changes WHERE watch_id = ?", (watch_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def watch_items(self, watch_id: int) -> dict[str, dict[str, Any]]:
+        """The last snapshot: item key -> {"data", "gone"}."""
+        rows = self.conn.execute(
+            "SELECT item_key, data, gone_at FROM watch_items WHERE watch_id = ?", (watch_id,)
+        )
+        return {
+            str(r["item_key"]): {"data": json.loads(r["data"]), "gone": r["gone_at"] is not None}
+            for r in rows
+        }
+
+    def save_watch_check(
+        self,
+        watch_id: int,
+        items: dict[str, dict[str, Any]],
+        gone: list[str],
+        changes: list[dict[str, Any]],
+        status: str,
+    ) -> None:
+        """Store one check: current items, items that disappeared, and the changes."""
+        now = _now()
+        self.conn.executemany(
+            """INSERT INTO watch_items (watch_id, item_key, data, first_seen, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (watch_id, item_key) DO UPDATE SET data = excluded.data,
+                   last_seen = excluded.last_seen, gone_at = NULL""",
+            [(watch_id, key, json.dumps(data), now, now) for key, data in items.items()],
+        )
+        self.conn.executemany(
+            "UPDATE watch_items SET gone_at = ? WHERE watch_id = ? AND item_key = ?",
+            [(now, watch_id, key) for key in gone],
+        )
+        self.conn.executemany(
+            """INSERT INTO watch_changes (watch_id, at, kind, item_key, summary)
+               VALUES (?, ?, ?, ?, ?)""",
+            [(watch_id, now, c["kind"], c["key"], json.dumps(c)) for c in changes],
+        )
+        self.conn.execute(
+            "UPDATE watches SET last_check_at = ?, last_status = ? WHERE id = ?",
+            (now, status, watch_id),
+        )
+        self.conn.commit()
+
+    def mark_watch_checked(self, watch_id: int, status: str) -> None:
+        self.conn.execute(
+            "UPDATE watches SET last_check_at = ?, last_status = ? WHERE id = ?",
+            (_now(), status, watch_id),
+        )
+        self.conn.commit()
+
+    def watch_changes(self, watch_id: int | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM watch_changes"
+        args: tuple[Any, ...] = ()
+        if watch_id is not None:
+            sql += " WHERE watch_id = ?"
+            args = (watch_id,)
+        rows = self.conn.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))
+        return [
+            {**json.loads(r["summary"]), "watch_id": r["watch_id"], "at": r["at"]} for r in rows
+        ]
 
     def first_run_llm_calls(self, domain: str) -> int | None:
         """LLM calls of the most recent full exploration (not a refresh), for comparison."""

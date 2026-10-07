@@ -1,5 +1,5 @@
 """Command-line entry point: `ghost-api [run | refresh | generate | verify | report | inspect |
-fetch | doctor | ui]`. With no command, asks for a URL and goal interactively.
+fetch | watch | doctor | ui]`. With no command, asks for a URL and goal interactively.
 
 The workflow itself lives in `ghost_api/pipeline.py` and emits events; this module parses
 options and renders those events with `ghost_api/ui/terminal.py`.
@@ -19,7 +19,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
-from ghost_api import __version__
+from ghost_api import __version__, watch
 from ghost_api.config import SUPPORTED_LANGUAGES, Settings, default_db_path, load_env
 from ghost_api.events import EventBus, Notice
 from ghost_api.export import tabular, write_exports
@@ -383,11 +383,21 @@ def ui(
     ] = False,
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+    no_watch: Annotated[
+        bool, typer.Option("--no-watch", help="Don't check due watches while open.")
+    ] = False,
 ) -> None:
     """Open the web dashboard: start runs, watch the agent live, browse every result."""
     from ghost_api.web.server import serve
 
-    serve(db or default_db_path(), out, port=port, open_browser=not no_open, console=console)
+    serve(
+        db or default_db_path(),
+        out,
+        port=port,
+        open_browser=not no_open,
+        console=console,
+        run_watches=not no_watch,
+    )
 
 
 @app.command()
@@ -597,6 +607,223 @@ def fetch(
     console.print(
         f"[bold green]Saved {len(records)} rows[/] to {target}"
         + (f"  [dim]({hidden} personal values hidden)[/]" if hidden else "")
+    )
+
+
+watch_app = typer.Typer(
+    help="Watch a site for new, changed or removed items, and get alerts.",
+    no_args_is_help=True,
+)
+app.add_typer(watch_app, name="watch")
+TASK_NAME = "GhostAPI watch"
+
+
+def _print_check(result: watch.CheckResult) -> None:
+    style = "red" if result.error else ("green" if result.changes else "dim")
+    console.print(f"[{style}]#{result.watch['id']} {result.headline()}[/]")
+    for change in result.changes[: watch.MAX_CHANGES_LISTED]:
+        console.print(f"    {change.line()}", markup=False)
+    if len(result.changes) > watch.MAX_CHANGES_LISTED:
+        console.print(f"    ... and {len(result.changes) - watch.MAX_CHANGES_LISTED} more")
+    for note in result.notified:
+        console.print(f"    [dim]notify {note}[/]")
+
+
+@watch_app.command("add")
+def watch_add(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    operation: Annotated[str, typer.Argument(help="What to watch (see `ghost-api fetch SITE`).")],
+    inputs: Annotated[
+        list[str] | None, typer.Argument(help="Inputs as name=value, e.g. area=velachery.")
+    ] = None,
+    every: Annotated[str, typer.Option(help="How often to check: 30m, 6h, 1d...")] = "6h",
+    notify: Annotated[
+        list[str] | None,
+        typer.Option(help="ntfy:TOPIC, webhook:URL or desktop. Repeatable."),
+    ] = None,
+    track: Annotated[
+        str | None,
+        typer.Option(help="Only these fields count as changes, e.g. price,name (default: all)."),
+    ] = None,
+    pages: Annotated[int, typer.Option(help="Pages to read on each check.")] = 5,
+    no_check: Annotated[
+        bool, typer.Option("--no-check", help="Don't take the first snapshot now.")
+    ] = False,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Start watching an endpoint. The first check records what's there now."""
+    try:
+        minutes = watch.parse_every(every)
+    except ValueError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=2) from exc
+    path = _need_db(db)
+    with Store(path) as store:
+        domain = _site(store, domain)
+        try:
+            with SiteRuntime(store, domain) as rt:
+                op = rt.operation(operation)
+        except OperationError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+        watch_id = store.add_watch(
+            {
+                "site": domain,
+                "operation": op.name,
+                "params": _params(inputs or []),
+                "every_minutes": minutes,
+                "notify": notify or [],
+                "track": [t.strip() for t in (track or "").split(",") if t.strip()],
+                "max_pages": pages,
+            }
+        )
+        console.print(
+            f"Watching #{watch_id}: {domain} {op.name}, every {watch.every_label(minutes)}."
+        )
+        if not no_check:
+            w = store.get_watch(watch_id)
+            assert w is not None
+            _print_check(watch.check(store, w))
+    console.print(
+        "[dim]Checks run while `ghost-api watch start` or `ghost-api ui` is open, or in the "
+        "background after `ghost-api watch schedule`.[/]"
+    )
+
+
+@watch_app.command("list")
+def watch_list(
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Show your watches."""
+    with Store(_need_db(db)) as store:
+        rows = store.watches()
+    if not rows:
+        console.print("No watches yet. Add one with `ghost-api watch add SITE OPERATION`.")
+        return
+    table = Table(title="Watches", title_justify="left")
+    for col in ("ID", "Watching", "Every", "Notify", "Last check", "Result"):
+        table.add_column(col, overflow="fold")
+    for w in rows:
+        table.add_row(
+            str(w["id"]), watch.describe(w), watch.every_label(w["every_minutes"]),
+            ", ".join(w["notify"]) or "-", (w["last_check_at"] or "never").replace("T", " "),
+            w["last_status"] or "-",
+        )  # fmt: skip
+    console.print(table)
+
+
+@watch_app.command("run")
+def watch_run(
+    ids: Annotated[list[int] | None, typer.Argument(help="Watch IDs (default: all).")] = None,
+    due: Annotated[bool, typer.Option("--due", help="Only watches that are due.")] = False,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Check watches once now."""
+    with Store(_need_db(db)) as store:
+        targets = [w for w in store.watches() if not ids or w["id"] in ids]
+        if due:
+            targets = [w for w in targets if watch.is_due(w)]
+        if not targets:
+            console.print("Nothing to check." if due else "No such watch.")
+            return
+        for w in targets:
+            _print_check(watch.check(store, w))
+
+
+@watch_app.command("changes")
+def watch_changes(
+    watch_id: Annotated[int | None, typer.Argument(help="One watch (default: all).")] = None,
+    limit: Annotated[int, typer.Option(help="How many to show.")] = 30,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Show recent changes found by your watches."""
+    with Store(_need_db(db)) as store:
+        changes = store.watch_changes(watch_id, limit)
+    if not changes:
+        console.print("No changes recorded yet.")
+        return
+    for c in changes:
+        line = watch.Change(c["kind"], c["key"], c["title"], c.get("fields") or {}).line()
+        console.print(f"[dim]{c['at'].replace('T', ' ')}  #{c['watch_id']}[/]  ", end="")
+        console.print(line, markup=False)
+
+
+@watch_app.command("remove")
+def watch_remove(
+    watch_id: Annotated[int, typer.Argument(help="The watch to remove.")],
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Stop watching (removes its history too)."""
+    with Store(_need_db(db)) as store:
+        removed = store.remove_watch(watch_id)
+    console.print(f"Removed watch #{watch_id}." if removed else f"No watch #{watch_id}.")
+    if not removed:
+        raise typer.Exit(code=1)
+
+
+@watch_app.command("start")
+def watch_start(
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Keep checking due watches until you press Ctrl+C."""
+    console.print("Checking due watches every minute. Press Ctrl+C to stop.")
+    with Store(_need_db(db)) as store:
+        try:
+            watch.loop(store, _print_check)
+        except KeyboardInterrupt:
+            console.print("Stopped.")
+
+
+def schedule_command(db: Path, every_minutes: int) -> list[str]:
+    """The Windows Task Scheduler command that runs due watches in the background."""
+    launcher = Path.home() / ".local" / "bin" / "ghost-api.cmd"
+    run = (
+        f'"{launcher}"' if launcher.exists() else f'"{Path(sys.executable)}" -m ghost_api'
+    ) + f' watch run --due --db "{db.resolve()}"'
+    minutes = max(5, min(every_minutes, 1439))
+    return ["schtasks", "/Create", "/F", "/SC", "MINUTE", "/MO", str(minutes),
+            "/TN", TASK_NAME, "/TR", run]  # fmt: skip
+
+
+@watch_app.command("schedule")
+def watch_schedule(
+    every: Annotated[str, typer.Option(help="How often Windows wakes Ghost API up.")] = "30m",
+    remove: Annotated[bool, typer.Option("--remove", help="Remove the scheduled task.")] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show the command without running it.")
+    ] = False,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Run due watches in the background (Windows Task Scheduler), even with no window open."""
+    import subprocess
+
+    path = _need_db(db)
+    if sys.platform != "win32":
+        where = path.resolve()
+        line = f'*/30 * * * * cd "{Path.cwd()}" && ghost-api watch run --due --db "{where}"'
+        console.print("Add this line with `crontab -e` (checks every 30 minutes):")
+        console.print(line, markup=False)
+        return
+    if remove:
+        command = ["schtasks", "/Delete", "/F", "/TN", TASK_NAME]
+    else:
+        try:
+            command = schedule_command(path, watch.parse_every(every))
+        except ValueError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=2) from exc
+    if dry_run:
+        console.print(subprocess.list2cmdline(command), markup=False)
+        return
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        console.print(f"Task Scheduler said: {(done.stderr or done.stdout).strip()}")
+        raise typer.Exit(code=1)
+    console.print(
+        "Removed the background task."
+        if remove
+        else f'Windows will check due watches every {every} (task "{TASK_NAME}"). '
+        "Remove it with `ghost-api watch schedule --remove`."
     )
 
 

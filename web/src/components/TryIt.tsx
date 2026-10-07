@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, Play, ShieldCheck } from "lucide-react";
+import { Download, Eye, Play, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
 import type { DataFormat, EndpointDetail, EndpointInput, TryResult } from "../types";
@@ -42,6 +43,80 @@ function AllowSwitch({ domain, endpoint }: { domain: string; endpoint: EndpointD
         </Button>
       )}
       {allow.error && <ErrorBox error={allow.error} />}
+    </div>
+  );
+}
+
+/** Start a watch with these inputs: re-check on a schedule, report what changed. */
+function WatchThis({
+  domain,
+  endpoint,
+  params,
+}: {
+  domain: string;
+  endpoint: EndpointDetail;
+  params: () => Record<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [every, setEvery] = useState("6h");
+  const [notify, setNotify] = useState("");
+  const qc = useQueryClient();
+  const add = useMutation({
+    mutationFn: () =>
+      api.addWatch({
+        site: domain,
+        endpoint: endpoint.key,
+        params: params(),
+        every,
+        notify: notify.trim() ? [notify.trim()] : [],
+        pages: 5,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["watches"] }),
+  });
+  if (!open) {
+    return (
+      <Button variant="ghost" onClick={() => setOpen(true)} className="px-0 text-accent hover:bg-transparent">
+        <Eye className="size-4" /> Watch this for changes
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-lg border border-line p-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs text-muted">
+          Check every
+          <select
+            value={every}
+            onChange={(ev) => setEvery(ev.target.value)}
+            className="ml-1.5 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg"
+          >
+            <option value="1h">hour</option>
+            <option value="6h">6 hours</option>
+            <option value="1d">day</option>
+          </select>
+        </label>
+        <label className="min-w-[14rem] flex-1 text-xs text-muted">
+          Alert me (optional)
+          <input
+            value={notify}
+            onChange={(ev) => setNotify(ev.target.value)}
+            placeholder="ntfy:a-long-private-topic, webhook:https://..., desktop"
+            className="mt-1 block w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-sm text-fg"
+          />
+        </label>
+        <Button variant="primary" onClick={() => add.mutate()} disabled={add.isPending}>
+          <Eye className="size-4" /> {add.isPending ? "Taking the first snapshot…" : "Start watching"}
+        </Button>
+      </div>
+      {add.error && <ErrorBox error={add.error} />}
+      {add.data && (
+        <p className="text-sm text-ok" aria-live="polite">
+          {add.data.check.headline}.{" "}
+          <Link to="/watches" className="underline">
+            See your watches
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
@@ -136,6 +211,7 @@ export function TryIt({ domain, endpoint }: { domain: string; endpoint: Endpoint
           {download.isPending ? "Downloading…" : "Download data"}
         </Button>
       </div>
+      <WatchThis domain={domain} endpoint={endpoint} params={params} />
       {download.error && <ErrorBox error={download.error} />}
       {download.data && (
         <p className="text-sm text-ok" aria-live="polite">

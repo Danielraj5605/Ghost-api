@@ -28,6 +28,9 @@ export function Layout({ children }: { children: ReactNode }) {
             <NavLink to="/" end className={navClass}>
               Sites
             </NavLink>
+            <NavLink to="/watches" className={navClass}>
+              Watches
+            </NavLink>
           </nav>
           <div className="ml-auto flex items-center gap-1.5">
             {running !== null && (

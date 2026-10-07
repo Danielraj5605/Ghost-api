@@ -41,7 +41,7 @@ from fastapi.responses import (
 from pydantic import BaseModel, Field
 from rich.console import Console
 
-from ghost_api import __version__
+from ghost_api import __version__, watch
 from ghost_api.config import SUPPORTED_LANGUAGES
 from ghost_api.errors import friendly_error
 from ghost_api.events import EventBus, Notice
@@ -107,6 +107,16 @@ class AllowCall(BaseModel):
 
 
 MAX_FETCH_ROWS = 5000
+
+
+class NewWatch(BaseModel):
+    site: str
+    endpoint: str  # Endpoint.key or operation name
+    params: dict[str, str] = Field(default_factory=dict)
+    every: str = "6h"
+    notify: list[str] = Field(default_factory=list)
+    track: list[str] = Field(default_factory=list)
+    pages: int = Field(5, ge=1, le=50)
 
 
 class Regenerate(BaseModel):
@@ -522,6 +532,80 @@ def create_app(
                 s.disallow_endpoint(domain, call.endpoint)
         return {"allowed": call.allowed}
 
+    # --- watches ---
+
+    def _watch_json(w: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **w,
+            "every": watch.every_label(w["every_minutes"]),
+            "due": watch.is_due(w),
+            "describe": watch.describe(w),
+            "site_id": to_url_id(w["site"]),
+        }
+
+    @app.get("/api/watches")
+    def list_watches() -> dict[str, Any]:
+        if not db.exists():
+            return {"watches": [], "changes": []}
+        with store() as s:
+            return {
+                "watches": [_watch_json(w) for w in s.watches()],
+                "changes": s.watch_changes(limit=100),
+            }
+
+    @app.post("/api/watches")
+    async def add_watch(req: NewWatch) -> dict[str, Any]:
+        site = _site_name(to_url_id(req.site))
+        try:
+            minutes = watch.parse_every(req.every)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        bad = [n for n in req.notify if not n.startswith(("ntfy:", "webhook:", "desktop"))]
+        if bad:
+            raise HTTPException(400, f"Unknown notification target: {bad[0]}")
+
+        def create() -> dict[str, Any]:
+            with store() as s:
+                with SiteRuntime(s, site) as rt:
+                    op = rt.operation(req.endpoint)
+                watch_id = s.add_watch(
+                    {
+                        "site": site,
+                        "operation": op.name,
+                        "params": req.params,
+                        "every_minutes": minutes,
+                        "notify": req.notify,
+                        "track": req.track,
+                        "max_pages": req.pages,
+                    }  # fmt: skip
+                )
+                w = s.get_watch(watch_id)
+                assert w is not None
+                return {"watch": _watch_json(w), "check": watch.to_json(watch.check(s, w))}
+
+        try:
+            return await asyncio.to_thread(create)
+        except OperationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/watches/{watch_id}/check")
+    async def check_watch(watch_id: int) -> dict[str, Any]:
+        def run() -> dict[str, Any]:
+            with store() as s:
+                w = s.get_watch(watch_id)
+                if w is None:
+                    raise HTTPException(404, "No such watch")
+                return watch.to_json(watch.check(s, w))
+
+        return await asyncio.to_thread(run)
+
+    @app.delete("/api/watches/{watch_id}")
+    def remove_watch(watch_id: int) -> dict[str, bool]:
+        with store() as s:
+            if not s.remove_watch(watch_id):
+                raise HTTPException(404, "No such watch")
+        return {"removed": True}
+
     @app.post("/api/doctor")
     async def doctor() -> list[dict[str, Any]]:
         return await asyncio.to_thread(check_providers)
@@ -566,8 +650,26 @@ def launch_token() -> str:
     return os.getenv("GHOST_API_UI_TOKEN") or secrets.token_urlsafe(24)
 
 
+def _watch_loop(db: Path, console: Console) -> None:
+    """While the dashboard is open, check due watches every minute."""
+    while True:
+        try:
+            if db.exists():
+                with Store(db) as s:
+                    for result in watch.run_due(s):
+                        console.print(f"[dim]watch #{result.watch['id']}: {result.headline()}[/]")
+        except Exception as exc:  # noqa: BLE001 - keep the dashboard running
+            console.print(f"[dim]watch check failed: {exc}[/]")
+        time.sleep(60)
+
+
 def serve(
-    db: Path, out: Path, port: int, open_browser: bool, console: Console | None = None
+    db: Path,
+    out: Path,
+    port: int,
+    open_browser: bool,
+    console: Console | None = None,
+    run_watches: bool = True,
 ) -> None:
     import uvicorn
 
@@ -575,6 +677,8 @@ def serve(
     token = launch_token()
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     app = create_app(db, out, token, allowed_hosts=hosts)
+    if run_watches:
+        threading.Thread(target=_watch_loop, args=(db, console), daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
     console.print(f"[bold #a78bfa]◆ Ghost API dashboard[/]  {url}")
     console.print("[dim]Local only. Press Ctrl+C to stop.[/]")
