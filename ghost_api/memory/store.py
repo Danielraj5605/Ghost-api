@@ -151,6 +151,7 @@ MIGRATIONS = (
     ("endpoints", "required_headers", "TEXT NOT NULL DEFAULT '[]'"),
     ("endpoints", "replayable", "INTEGER"),
     ("endpoints", "status_note", "TEXT NOT NULL DEFAULT ''"),
+    ("requests", "personal", "TEXT NOT NULL DEFAULT '[]'"),
 )
 
 
@@ -254,8 +255,8 @@ class Store:
         cur = self.conn.execute(
             """INSERT INTO requests (run_id, method, url, status, resource_type, req_headers,
                    req_body, req_content_type, resp_content_type, resp_body, truncated,
-                   third_party, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   third_party, timestamp, personal)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id,
                 req.method,
@@ -270,6 +271,7 @@ class Store:
                 int(req.truncated),
                 int(req.third_party),
                 req.timestamp,
+                json.dumps(req.personal),
             ),
         )
         self.conn.commit()
@@ -310,6 +312,7 @@ class Store:
                 truncated=bool(r["truncated"]),
                 third_party=bool(r["third_party"]),
                 timestamp=r["timestamp"],
+                personal=json.loads(r["personal"] or "[]"),
             )
             for r in rows
         ]

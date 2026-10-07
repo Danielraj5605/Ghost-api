@@ -159,6 +159,7 @@ class RunFinished(Event):
     lessons_learned: int = 0
     filtered: dict[str, int] = field(default_factory=dict)
     generation_error: str = ""
+    exposure: str = ""  # "1 endpoint exposes personal data without a login: ..."
 
 
 Subscriber = Callable[[Event], object]  # return values are ignored

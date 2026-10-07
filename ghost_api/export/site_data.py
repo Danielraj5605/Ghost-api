@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ghost_api import __version__
+from ghost_api.analysis.exposure import exposures
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import field_paths, top_level_fields
 from ghost_api.export.confidence import confidence
@@ -86,12 +87,16 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
     if run_id is None:
         return []
     details = []
-    for ep in store.load_endpoints(domain, run_id):
+    endpoints = store.load_endpoints(domain, run_id)
+    found = exposures(endpoints, store.requests_for_domain(domain))
+    exposed = {e.endpoint_key: e.to_dict() for e in found}
+    for ep in endpoints:
         summary = endpoint_summary(ep, domain)
         summary.update(
             request_schema=ep.request_schema,
             response_schema=ep.response_schema,
             example_urls=ep.example_urls,
+            exposure=exposed.get(ep.key),
         )
         details.append(summary)
     return details

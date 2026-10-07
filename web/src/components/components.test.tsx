@@ -71,3 +71,30 @@ describe("site ids in URLs", () => {
     expect(siteId("hn.algolia.com")).toBe("hn.algolia.com");
   });
 });
+
+describe("Exposure", () => {
+  it("shows what was hidden, masked, and a site banner", async () => {
+    const { ExposureBanner, ExposurePanel } = await import("./Exposure");
+    const exposure = {
+      endpoint: "GET x/api/venue/{id}",
+      label: "GET /api/venue/{id}",
+      open: true,
+      severity: "high" as const,
+      kinds: ["PAN number", "email address"],
+      fields: [
+        { path: "data.tax_info.pan_number", kind: "pan", severity: "high" as const, example: "AB*******F", count: 2 },
+        { path: "data.created_by", kind: "email", severity: "medium" as const, example: "a***@g***.com", count: 2 },
+      ],
+    };
+    render(<ExposurePanel exposure={exposure} />);
+    expect(screen.getByText("Personal data exposed without a login")).toBeTruthy();
+    expect(screen.getByText("AB*******F")).toBeTruthy();
+    expect(screen.getByText("data.created_by")).toBeTruthy();
+    cleanup();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<ExposureBanner endpoints={[{ exposure } as any, { exposure: null } as any]} />);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "1 endpoint exposes personal data without a login: PAN number, email address",
+    );
+  });
+});

@@ -52,12 +52,23 @@ export interface EndpointSummary {
   fields: string;
   field_paths: string[];
   has_request_body: boolean;
+  exposure?: Exposure | null; // only in site details (not in live run summaries)
 }
 
 export interface EndpointDetail extends EndpointSummary {
   request_schema: JsonSchema | null;
   response_schema: JsonSchema | null;
   example_urls: string[];
+}
+
+/** Personal data an endpoint returned; Ghost API hid the values (capture/personal.py). */
+export interface Exposure {
+  endpoint: string;
+  label: string;
+  open: boolean; // without a login
+  severity: "high" | "medium";
+  kinds: string[];
+  fields: { path: string; kind: string; severity: "high" | "medium"; example: string; count: number }[];
 }
 
 export interface JsonSchema {

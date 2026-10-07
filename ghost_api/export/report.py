@@ -10,7 +10,9 @@ from datetime import datetime
 from typing import Any
 
 from ghost_api import __version__
+from ghost_api.analysis.exposure import Exposure, exposures, summary_line
 from ghost_api.analysis.models import Endpoint
+from ghost_api.capture.personal import LABEL
 from ghost_api.export.confidence import confidence
 from ghost_api.generator.spec import ClientSpec
 from ghost_api.memory.store import RunRow, Store
@@ -41,6 +43,9 @@ def build_report(store: Store, domain: str, run_id: int, spec: ClientSpec | None
         "",
     ]
     out += _endpoint_table(endpoints, domain) if endpoints else ["No endpoints were found."]
+    exposed = exposures(endpoints, store.requests_for_domain(domain))
+    if exposed:
+        out += ["", "## Personal data exposed", "", *_exposure_section(exposed)]
     out += ["", "## Hypotheses tested", ""]
     out += _hypotheses(hypotheses) or ["No direct-call tests in this run."]
     out += ["", "## How the agent explored", ""]
@@ -52,6 +57,30 @@ def build_report(store: Store, domain: str, run_id: int, spec: ClientSpec | None
         out += [f"- {_md(lesson)}" for lesson in lessons]
     out += ["", "---", "", _CONFIDENCE_NOTE, ""]
     return "\n".join(out)
+
+
+def _exposure_section(exposed: list[Exposure]) -> list[str]:
+    lines = [
+        f"**{summary_line(exposed)}.** Ghost API hid these values: they are not in its "
+        "database, this report or the generated code. Examples below are masked.",
+        "",
+        "| Endpoint | Without login | Field | What | Seen | Example |",
+        "|---|---|---|---|---|---|",
+    ]
+    for e in exposed:
+        for f in e.fields:
+            lines.append(
+                f"| `{_md(e.label)}` | {'yes' if e.open else 'no'} | `{_md(f['path'])}` "
+                f"| {LABEL.get(f['kind'], f['kind'])} ({f['severity']}) | {f['count']} "
+                f"| `{_md(f['example'])}` |"
+            )
+    lines += [
+        "",
+        "_What to do: if this is your site, stop returning these fields (or require a "
+        "login). If it isn't, don't collect or share them, and consider telling the site "
+        "owner privately (responsible disclosure)._",
+    ]
+    return lines
 
 
 _CONFIDENCE_NOTE = (

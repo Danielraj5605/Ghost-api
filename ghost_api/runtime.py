@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -21,6 +21,7 @@ from ghost_api.analysis.detectors import (
     next_cursor,
 )
 from ghost_api.analysis.models import Endpoint
+from ghost_api.capture import personal
 from ghost_api.capture.filters import is_sensitive_name
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.generator.naming import NamingPlan, apply_plan
@@ -70,9 +71,17 @@ class Page:
 
 class SiteRuntime:
     def __init__(
-        self, store: Store, site: str, replayer: Replayer | None = None, rate: float = 1.0
+        self,
+        store: Store,
+        site: str,
+        replayer: Replayer | None = None,
+        rate: float = 1.0,
+        include_sensitive: bool = False,
     ) -> None:
+        """`include_sensitive`: return personal data (emails, phones, PAN...) as the site
+        sends it. Only for auditing your own site; by default such values are hidden."""
         self.site = site
+        self.include_sensitive = include_sensitive
         run_id = store.latest_endpoint_run(site)
         if run_id is None:
             raise OperationError(f"Nothing stored for {site}. Run `ghost-api run` first.")
@@ -133,7 +142,11 @@ class SiteRuntime:
         request = apply_params(
             sample, op.endpoint.path_template, {p.name for p in op.endpoint.path_params}, values
         )
-        return self.replayer.send(request, trusted_read=op.allowed)
+        result = self.replayer.send(request, trusted_read=op.allowed)
+        if self.include_sensitive or result.body is None:
+            return result
+        body, hidden = personal.hide(result.body)
+        return replace(result, body=body, hidden=personal.summarize(hidden))
 
     def iterate(
         self,

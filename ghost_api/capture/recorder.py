@@ -14,7 +14,7 @@ from collections.abc import Callable
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, Response
 
-from ghost_api.capture import filters
+from ghost_api.capture import filters, personal
 from ghost_api.capture.models import CapturedRequest, RawRequest
 
 MAX_BODY_CHARS = 500_000
@@ -103,6 +103,8 @@ class TrafficRecorder:
 
         # Redact the full body first: truncated JSON can't be parsed for key-based redaction.
         safe_body = filters.redact_body(body, resp_ctype) or ""
+        hidden_body, personal_data = personal.hide_body(safe_body)
+        safe_body = hidden_body or ""
         truncated = len(safe_body) > MAX_BODY_CHARS
         if truncated:
             safe_body = safe_body[:MAX_BODY_CHARS]
@@ -121,6 +123,7 @@ class TrafficRecorder:
             resp_body=safe_body,
             truncated=truncated,
             third_party=filters.is_third_party(request.url, self.target_host),
+            personal=personal_data,
         )
         return captured, raw
 

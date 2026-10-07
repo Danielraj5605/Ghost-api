@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 
 @dataclass
@@ -22,6 +23,9 @@ class CapturedRequest:
     truncated: bool = False
     third_party: bool = False  # served from a different domain than the target site
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    # Personal data hidden from resp_body before storing (capture/personal.py):
+    # [{"path", "kind", "severity", "example" (masked), "count"}].
+    personal: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

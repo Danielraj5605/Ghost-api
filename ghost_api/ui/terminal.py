@@ -367,6 +367,15 @@ class TerminalRenderer:
             body.append(Text("Use it  ", style="dim") + Text(_use_it(c), style="bold"))
         elif e.generation_error:
             body += [Text(""), Text(f"No client generated: {e.generation_error}", style="yellow")]
+        if e.exposure:
+            body += [
+                Text(""),
+                Text(f"⚠ {e.exposure}", style="bold yellow"),
+                Text(
+                    '  Ghost API hid these values. See the report\'s "Personal data" section.',
+                    style="dim",
+                ),  # fmt: skip
+            ]
         body.append(Text.assemble(("Report  ", "dim"), e.report_html or e.report))
         if e.report_html:
             body.append(Text("        one file: open it in a browser or share it", style="dim"))

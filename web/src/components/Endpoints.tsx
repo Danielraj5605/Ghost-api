@@ -1,6 +1,7 @@
 import { ArrowRightLeft, Layers, Lock, Search, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { EndpointDetail, EndpointSummary } from "../types";
+import { ExposureBadge, ExposurePanel } from "./Exposure";
 import { SchemaTree } from "./SchemaTree";
 import {
   Button,
@@ -57,6 +58,7 @@ export function EndpointCard({
               </Pill>
             )}
             {e.third_party && <Pill>{e.host}</Pill>}
+            {e.exposure && <ExposureBadge exposure={e.exposure} />}
           </div>
           {e.fields && <p className="mt-2 line-clamp-2 text-xs text-muted">{e.fields}</p>}
         </>
@@ -197,6 +199,8 @@ export function EndpointDetailPanel({
           </Fact>
         )}
       </dl>
+
+      {e.exposure && <ExposurePanel exposure={e.exposure} />}
 
       {e.params.length > 0 && (
         <section>

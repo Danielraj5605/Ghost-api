@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { api, siteFromId } from "../api";
 import { CodeBlock, languageFor } from "../components/CodeBlock";
 import { EndpointDetailPanel, EndpointList } from "../components/Endpoints";
+import { ExposureBanner } from "../components/Exposure";
 import { TryIt } from "../components/TryIt";
 import {
   bytes,
@@ -324,6 +325,7 @@ export function Site() {
         </Button>
       </header>
       {startAgain.error && <ErrorBox error={startAgain.error} />}
+      <ExposureBanner endpoints={s.endpoints} />
 
       <Tabs
         value={tab}

@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from ghost_api.agent.orchestrator import AgentResult, Explorer, StepRecord
 from ghost_api.analysis.analyzer import analyze, endpoint_keys
+from ghost_api.analysis.exposure import exposures, summary_line
 from ghost_api.analysis.models import Endpoint
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
@@ -411,6 +412,15 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
             apply_probe(ep, report)
             store.save_probe_report(site, s.run_id, ep, report)
     s.emit(EndpointsUpdated([endpoint_summary(e, site) for e in endpoints]))
+    exposed = exposures(endpoints, s.recorder.captured)
+    if exposed:
+        s.emit(
+            Notice(
+                f"Personal data: {summary_line(exposed)}. Ghost API hid these values.",
+                "warning",
+                "\n".join(f"{e.label}: {', '.join(e.kinds)}" for e in exposed),
+            )
+        )
 
     generated: GenerationResult | None = None
     generation_error = ""
@@ -484,6 +494,7 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
             lessons_learned=learned,
             filtered=dict(s.recorder.dropped),
             generation_error=generation_error,
+            exposure=summary_line(exposed) if exposed else "",
         )
     )
     s.phase("done")

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, languageFor } from "../components/CodeBlock";
 import { EndpointDetailPanel, EndpointList } from "../components/Endpoints";
+import { ExposureBanner } from "../components/Exposure";
 import { Logo } from "../components/Logo";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Timeline } from "../components/Timeline";
@@ -199,6 +200,8 @@ export function ReportApp({ data }: { data: ReportData | null }) {
             <Stat label="Time" value={duration === null ? "—" : `${duration} s`} />
           </div>
         </section>
+
+        <ExposureBanner endpoints={data.endpoints} />
 
         <Tabs
           value={tab}

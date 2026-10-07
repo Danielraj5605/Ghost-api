@@ -13,13 +13,13 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from ghost_api.capture import filters
+from ghost_api.capture import filters, personal
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
 
@@ -57,6 +57,7 @@ class ReplayResult:
     body: Any | None  # parsed JSON, or None
     error: str | None = None
     captured: CapturedRequest | None = None  # redacted record of this call
+    hidden: list[dict[str, Any]] = field(default_factory=list)  # personal data hidden
 
     @property
     def ok(self) -> bool:
@@ -234,6 +235,11 @@ class Replayer:
         except ValueError:
             body = None
         ctype = resp.headers.get("content-type")
+        stored_body, personal_data = (
+            personal.hide_body(filters.redact_body(filters.strip_xssi(resp.text), ctype))
+            if body is not None
+            else (None, [])
+        )
         captured = CapturedRequest(
             method=raw.method,
             url=filters.redact_url(raw.url),
@@ -243,11 +249,8 @@ class Replayer:
             req_body=filters.redact_body(raw.body, headers.get("content-type")),
             req_content_type=headers.get("content-type"),
             resp_content_type=ctype,
-            resp_body=(
-                filters.redact_body(filters.strip_xssi(resp.text), ctype)
-                if body is not None
-                else None
-            ),
+            resp_body=stored_body,
+            personal=personal_data,
             third_party=filters.is_third_party(raw.url, self.target_host),
         )
         error = None if body is not None else "response is not JSON"
