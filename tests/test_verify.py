@@ -238,14 +238,20 @@ def test_verifier_repairs_broken_schema_and_missing_header(server: str, tmp_path
     host = "127.0.0.1"
     # What exploring captured: "note" was always a string, and the browser happened to send
     # the x-client header (but probing never ran, so it isn't known to be required).
+    # Replies to three different folders, so "note is always a string" counts as strong
+    # evidence (spec.trust_required) and the live null really breaks the model.
     requests = [
-        CapturedRequest("GET", f"{server}/api/notes", 200, "fetch", {}, None, None,
-                        "application/json", json.dumps({"notes": [{"id": 1, "note": "text"}]})),
+        CapturedRequest("GET", f"{server}/api/notes?folder={i}", 200, "fetch", {}, None, None,
+                        "application/json", json.dumps({"notes": [{"id": i, "note": "text"}]}))
+        for i in (1, 2, 3)
+    ] + [
         CapturedRequest("GET", f"{server}/api/secure", 200, "fetch", {"x-client": "web"}, None,
                         None, "application/json", json.dumps({"items": [{"id": 1}]})),
     ]  # fmt: skip
     raw: list[RawRequest | None] = [
-        RawRequest("GET", f"{server}/api/notes", {"accept": "application/json"}),
+        RawRequest("GET", f"{server}/api/notes?folder={i}", {"accept": "application/json"})
+        for i in (1, 2, 3)
+    ] + [
         RawRequest(
             "GET", f"{server}/api/secure", {"accept": "application/json", "x-client": "web"}
         ),

@@ -76,9 +76,10 @@ def generate_from(
     out_root: Path,
     plan: NamingPlan | None = None,
     lang: str = "python",
+    allow: set[str] | None = None,
 ) -> GenerationResult:
     class_name, names = apply_plan(plan, endpoints, domain)
-    spec = build_spec(domain, start_url, endpoints, requests, class_name, names)
+    spec = build_spec(domain, start_url, endpoints, requests, class_name, names, allow)
     if not spec.methods:
         reasons = "; ".join(spec.skipped) or "no endpoints"
         raise NothingToGenerate(f"no endpoint can be turned into a method ({reasons})")
@@ -93,6 +94,7 @@ def generate_client(
     out_root: Path,
     llm: LLMGateway | None = None,
     lang: str = "python",
+    allow: set[str] | None = None,
 ) -> GenerationResult:
     """Build the client for `domain` from the endpoints of its most recent run."""
     run_id = store.latest_endpoint_run(domain)
@@ -102,4 +104,4 @@ def generate_client(
     endpoints = store.load_endpoints(domain, run_id)
     requests = store.requests_for_domain(domain)
     plan = plan_for(store, llm, domain, endpoints)
-    return generate_from(domain, run.start_url, endpoints, requests, out_root, plan, lang)
+    return generate_from(domain, run.start_url, endpoints, requests, out_root, plan, lang, allow)

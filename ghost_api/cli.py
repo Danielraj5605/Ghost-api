@@ -396,6 +396,14 @@ def generate(
     ] = False,
     lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+    allow: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow",
+            help='An endpoint you checked only reads data, e.g. "POST /api/search". Ghost API '
+            "skips POSTs without a read word in their URL; this includes one anyway. Repeatable.",
+        ),
+    ] = None,
 ) -> None:
     """(Re)generate the client for a site from its stored endpoint map."""
     path = _need_db(db)
@@ -407,7 +415,9 @@ def generate(
             domain = _site(store, domain)
             if gateway is not None:
                 gateway.store = store
-            result = generate_client(store, domain, out, llm=gateway, lang=_check_lang(lang))
+            result = generate_client(
+                store, domain, out, llm=gateway, lang=_check_lang(lang), allow=set(allow or [])
+            )
     except (NothingToGenerate, GenerationError) as exc:
         console.print(f"[red]No client generated:[/] {exc}")
         raise typer.Exit(code=1) from exc

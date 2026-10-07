@@ -4,6 +4,7 @@ Asked for after a run on https://www.google.com/maps was filed under www.google.
 where a later run on www.google.com/search would have mixed with it.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -143,3 +144,81 @@ def test_cli_accepts_the_domain_when_it_has_one_site(tmp_path: Path) -> None:
     ambiguous = runner.invoke(app, ["report", "www.google.com", "--db", str(db), "--out", out])
     assert ambiguous.exit_code == 1
     assert "www.google.com/maps" in ambiguous.output and "www.google.com/search" in ambiguous.output
+
+
+# --- found while building examples/turf_finder ---
+
+
+def test_fields_are_optional_until_seen_in_three_replies() -> None:
+    """24 venues of one area all had `base_type`; a venue in another area didn't."""
+    from ghost_api.generator.naming import apply_plan
+    from ghost_api.generator.spec import MIN_REPLIES_FOR_REQUIRED, build_spec
+
+    def replies(n: int) -> list[CapturedRequest]:
+        return [
+            CapturedRequest(
+                "GET",
+                f"https://t.test/api/venues?area=a{i}",
+                200,
+                "fetch",
+                {},
+                None,
+                None,
+                "application/json",
+                json.dumps(
+                    {
+                        "venues": [
+                            {"name": f"v{i}", "base_type": "x"},
+                            {"name": f"w{i}", "base_type": "y"},
+                        ]
+                    }
+                ),
+            )  # fmt: skip
+            for i in range(n)
+        ]
+
+    def venue_fields(n: int) -> dict[str, bool]:
+        reqs = replies(n)
+        eps = analyze(reqs)
+        eps[0].replayable = True
+        cls, names = apply_plan(None, eps, "t.test")
+        spec = build_spec("t.test", "https://t.test/", eps, reqs, cls, names)
+        model = next(m for m in spec.models if any(f.name == "base_type" for f in m.fields))
+        return {f.name: f.optional for f in model.fields}
+
+    assert venue_fields(1) == {"name": True, "base_type": True}
+    assert venue_fields(MIN_REPLIES_FOR_REQUIRED) == {"name": False, "base_type": False}
+
+
+def test_pages_of_one_search_are_not_enough_evidence() -> None:
+    from ghost_api.generator.spec import MANY_REPLIES, trust_required
+
+    def page(area: str, skip: int) -> CapturedRequest:
+        return CapturedRequest(
+            "POST", "https://t.test/api/venues", 200, "fetch", {},
+            json.dumps({"area": area, "skip": skip, "limit": 24}), "application/json",
+            "application/json", json.dumps({"skip": skip, "area": area}),
+        )  # fmt: skip
+
+    one_search = [page("guduvanchery", s) for s in (0, 24, 48, 72)]
+    assert not trust_required(one_search)  # what the Turf Town run captured
+    assert trust_required([*one_search[:2], page("velachery", 0)])
+    assert trust_required([page("a", s) for s in range(0, 24 * MANY_REPLIES, 24)])
+
+
+def test_allow_includes_a_post_the_user_checked(tmp_path: Path) -> None:
+    from ghost_api.generator.naming import apply_plan
+    from ghost_api.generator.spec import build_spec
+
+    req = CapturedRequest(
+        "POST", "https://t.test/api/venues_around_you", 200, "fetch", {}, '{"area": "a"}',
+        "application/json", "application/json", '{"venues": []}',
+    )  # fmt: skip
+    eps = analyze([req])
+    cls, names = apply_plan(None, eps, "t.test")
+    skipped = build_spec("t.test", "https://t.test/", eps, [req], cls, names)
+    assert not skipped.methods and "use --allow" in skipped.skipped[0]
+    allowed = build_spec(
+        "t.test", "https://t.test/", eps, [req], cls, names, {"POST /api/venues_around_you"}
+    )
+    assert [m.http_method for m in allowed.methods] == ["POST"]

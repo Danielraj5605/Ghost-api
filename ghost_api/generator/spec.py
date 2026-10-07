@@ -17,7 +17,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from ghost_api.analysis.analyzer import endpoint_keys
 from ghost_api.analysis.models import Endpoint
@@ -39,6 +39,39 @@ SKIP_HEADERS = {
     "connection",
     "cookie",
 }
+
+
+# Fields are generated as always present only with enough evidence; otherwise every field
+# may be missing. Found on Turf Town: a field present in all 24 venues of one area (over 4
+# pages) was missing for a venue in another area. Evidence is replies to at least 2
+# different inputs (paging aside) across MIN_REPLIES_FOR_REQUIRED replies, or simply
+# MANY_REPLIES replies.
+MIN_REPLIES_FOR_REQUIRED = 3
+MANY_REPLIES = 6
+_PAGING_KEYS = {
+    "page", "offset", "skip", "limit", "cursor", "start", "per_page", "perpage", "page_size",
+    "pagesize", "size", "after", "before", "from", "hitsperpage", "hits_per_page",
+}  # fmt: skip
+
+
+def trust_required(reqs: list[CapturedRequest]) -> bool:
+    """Is "seen in every sample" good evidence for "always present" for this endpoint?"""
+    replies = {r.resp_body for r in reqs}
+    if len(replies) >= MANY_REPLIES:
+        return True
+    inputs = {_input_signature(r) for r in reqs}
+    return len(replies) >= MIN_REPLIES_FOR_REQUIRED and len(inputs) >= 2
+
+
+def _input_signature(req: CapturedRequest) -> str:
+    query = {
+        k: v
+        for k, v in parse_qsl(urlsplit(req.url).query, keep_blank_values=True)
+        if k.lower() not in _PAGING_KEYS
+    }
+    body = _json_dict(req.req_body) or {}
+    body = {k: v for k, v in body.items() if k.lower() not in _PAGING_KEYS}
+    return json.dumps([sorted(query.items()), body], sort_keys=True, default=str)
 
 
 @dataclass
@@ -147,7 +180,11 @@ def build_spec(
     requests: list[CapturedRequest],
     class_name: str,
     names: dict[str, EndpointNames],
+    allow: set[str] | None = None,
 ) -> ClientSpec:
+    """`allow`: endpoints the user has checked only read data, by label
+    ("POST /api/search" or "POST api.example.com/search"). Ghost API never decides
+    that by itself for a POST without a read word in its URL."""
     parts = urlsplit(start_url)
     spec = ClientSpec(class_name, domain, f"{parts.scheme}://{parts.netloc}")
     main_host = (parts.hostname or "").lower()
@@ -162,7 +199,7 @@ def build_spec(
 
     for ep in endpoints:
         reqs = samples.get(ep.key, [])
-        reason = _skip_reason(ep, reqs)
+        reason = _skip_reason(ep, reqs, allowed=is_allowed(ep, allow or set()))
         if reason:
             spec.skipped.append(f"{ep.method} {ep.host}{ep.path_template}: {reason}")
             continue
@@ -235,7 +272,9 @@ def build_spec(
                 if value and value != REDACTED:
                     headers[h] = value
 
+        builder.trust_required = trust_required(reqs)
         response_type = builder.root_type(ep.response_schema, n.response_model, n.summary)
+        builder.trust_required = True
         page_param = next(
             (
                 p
@@ -266,11 +305,20 @@ def build_spec(
     return spec
 
 
-def _skip_reason(ep: Endpoint, reqs: list[CapturedRequest]) -> str | None:
+def is_allowed(ep: Endpoint, allow: set[str]) -> bool:
+    labels = {
+        f"{ep.method} {ep.path_template}",
+        f"{ep.method} {ep.host}{ep.path_template}",
+        ep.label,
+    }
+    return bool(labels & {a.strip() for a in allow})
+
+
+def _skip_reason(ep: Endpoint, reqs: list[CapturedRequest], allowed: bool = False) -> str | None:
     probe = RawRequest(ep.method, f"https://{ep.host}{ep.path_template}", {}, None)
-    if not is_replayable(probe):
-        return "may change data, so no method is generated"
-    if ep.replayable is False:
+    if not allowed and not is_replayable(probe):
+        return "may change data, so no method is generated (use --allow if it only reads)"
+    if not allowed and ep.replayable is False:
         return "could not be called outside the browser"
     if ep.method == "POST" and reqs and not _json_dict(reqs[-1].req_body) and reqs[-1].req_body:
         return "request body is not JSON"

@@ -452,6 +452,8 @@ ghost-api report quotes.toscrape.com
 # Regenerate the client from stored data (no browser; --no-llm skips the naming call)
 ghost-api generate quotes.toscrape.com
 ghost-api generate quotes.toscrape.com --lang typescript   # TypeScript instead
+# Include a POST endpoint you checked only reads data (Ghost API skips those by itself)
+ghost-api generate turftown.in/chennai --allow "POST /api/v2/venue/web/venues_around_you"
 
 # Re-run the generated client's tests against the live API (and repair if needed)
 ghost-api verify quotes.toscrape.com
@@ -489,6 +491,10 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
 | `--no-generate` | off | Don't generate a Python client |
 | `--no-verify` | off | Don't run the generated tests against the live API |
 | `--out` | `output` | Folder for generated clients |
+
+**Example projects** built on generated clients, each with a plain-language README:
+[`examples/quote_book`](examples/quote_book) (a searchable book of quotes) and
+[`examples/turf_finder`](examples/turf_finder) (find sports venues near you in Chennai).
 
 ---
 

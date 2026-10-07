@@ -48,6 +48,9 @@ class ModelBuilder:
         self.models: list[ModelDef] = []
         self._by_signature: dict[tuple[Any, ...], str] = {}
         self._used: set[str] = set(reserved_names or ())
+        # Treat "seen in every sample" as "always present" only with enough evidence:
+        # many items from one reply (one area, one search) say little about the next one.
+        self.trust_required = True
 
     def root_type(self, schema: dict[str, Any] | None, name: str, doc: str = "") -> str:
         """Type expression for a whole response; creates models as needed."""
@@ -91,7 +94,7 @@ class ModelBuilder:
             if type_expr == "None":  # only ever seen as null: real type unknown
                 type_expr = "Any"
             nullable = "None" in _top_level_members(type_expr) or type_expr == "Any"
-            optional = key not in required or nullable
+            optional = key not in required or nullable or not self.trust_required
             if optional and not nullable:
                 type_expr = _union([type_expr, "None"])
             py = snake(key)

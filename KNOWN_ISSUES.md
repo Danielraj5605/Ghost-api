@@ -261,6 +261,21 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
 - **Fix:** When a list-of-union model still fails after the repairs, fall back to `Any` for
   that response (keep the endpoint, drop the typing), and say so in the report.
 
+### 33. ~~Models too strict when samples come from one search~~ (fixed 2026-10-07)
+- **Problem:** The Turf Town venue list was captured 4 times, all for one area. Every field
+  seen in all 24 venues became required, and a venue in another area without `base_type`
+  failed validation. The venue-details model (2 samples) failed for every other venue.
+- **Fixed:** Fields are only generated as always present with enough evidence: replies to at
+  least 2 different inputs (paging aside) across 3 replies, or 6 replies. Otherwise they may
+  be missing. See `trust_required()` in `ghost_api/generator/spec.py`.
+
+### 34. POST searches were never in the client (now: `--allow`)
+- **Problem:** Many sites use POST for read-only searches (Turf Town's venue list). Ghost API
+  rightly never decides by itself that a POST without a read word is safe, so no method was
+  generated.
+- **Now:** `ghost-api generate SITE --allow "POST /path"` includes an endpoint the user has
+  checked only reads. Automatic detection is still open.
+
 ---
 
 ## Environment (not code)
