@@ -21,3 +21,6 @@ dist/
 
 # Screenshots and other run files kept next to the database
 *_files/
+
+# Dashboard frontend (built output in ghost_api/web/static is committed)
+web/node_modules/
