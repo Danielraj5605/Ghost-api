@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import re
 import secrets
 import threading
@@ -487,13 +488,19 @@ def create_app(
     return app
 
 
+def launch_token() -> str:
+    """A new random token per launch, or GHOST_API_UI_TOKEN for frontend development
+    (`npm run dev` sends the same value as VITE_GHOST_TOKEN)."""
+    return os.getenv("GHOST_API_UI_TOKEN") or secrets.token_urlsafe(24)
+
+
 def serve(
     db: Path, out: Path, port: int, open_browser: bool, console: Console | None = None
 ) -> None:
     import uvicorn
 
     console = console or Console()
-    token = secrets.token_urlsafe(24)
+    token = launch_token()
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     app = create_app(db, out, token, allowed_hosts=hosts)
     url = f"http://127.0.0.1:{port}/"

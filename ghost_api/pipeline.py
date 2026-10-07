@@ -181,7 +181,13 @@ class Session:
 
         def shoot(name: str) -> str | None:
             file = f"{name}.jpg"
-            return file if browser.screenshot(folder / file) else None
+            if not browser.screenshot(folder / file):
+                return None
+            # Step screenshots travel in their AgentStep event; announce the others (the
+            # page as first loaded), or a run that finishes at step 1 shows no picture.
+            if not name.startswith("step-"):
+                self.emit(Screenshot(file, browser.url))
+            return file
 
         return shoot
 
@@ -222,9 +228,8 @@ class Session:
             for _ in range(scrolls):
                 browser.scroll("bottom")
             shoot = self._shooter(browser)
-            name = shoot("visit") if shoot else None
-            if name:
-                self.emit(Screenshot(name, browser.url))
+            if shoot:
+                shoot("visit")
 
     def replan(self, sub_goal: str) -> None:
         """Verification sends the agent back with a focused sub-goal (e.g. fresh session)."""

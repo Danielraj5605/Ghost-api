@@ -19,7 +19,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TimelineItem } from "../state/runReducer";
 import type { Box, Level } from "../types";
-import { cx, plural, Pill } from "./ui";
+import { AgentText, cx, plural, Pill } from "./ui";
 
 const ACTION_ICON: Record<string, typeof Globe> = {
   click: MousePointerClick,
@@ -151,7 +151,11 @@ export function Timeline({
                   key={item.id}
                   icon={<Icon className="size-4" />}
                   iconClass={className}
-                  title={<span className={item.level === "info" ? "font-normal" : ""}>{item.text}</span>}
+                  title={
+                    <span className={item.level === "info" ? "font-normal" : ""}>
+                      <AgentText text={item.text} />
+                    </span>
+                  }
                   details={item.detail ? <pre className="font-mono whitespace-pre-wrap">{item.detail}</pre> : undefined}
                 />
               );
@@ -175,7 +179,11 @@ export function Timeline({
                     item.result ? <pre className="font-mono whitespace-pre-wrap">{item.result}</pre> : undefined
                   }
                 >
-                  {item.thought && <p className="italic">“{item.thought}”</p>}
+                  {item.thought && (
+                    <p className="italic">
+                      “<AgentText text={item.thought} />”
+                    </p>
+                  )}
                   <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                     <span>{plural(item.requests, "new request")}</span>
                     {item.newEndpoints.map((ep) => (

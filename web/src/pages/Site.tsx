@@ -48,7 +48,7 @@ function EndpointsTab({ site }: { site: SiteDetail }) {
     );
   }
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
       <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1">
         <EndpointList
           endpoints={site.endpoints}
@@ -149,7 +149,7 @@ function CodeTab({ site, languages }: { site: SiteDetail; languages: string[] })
           </EmptyState>
         </Card>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)]">
           <ul className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Files">
             {shown.map((f) => (
               <li key={f.name} className="shrink-0">
@@ -313,7 +313,7 @@ export function Site() {
       </Link>
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-bold">{s.domain}</h1>
+          <h1 className="text-xl font-bold break-all sm:text-2xl">{s.domain}</h1>
           <p className="mt-1 text-sm text-muted">
             {plural(visible.length, "endpoint")} · {verified} verified · {plural(s.runs.length, "run")}
             {last ? ` · last ${timeAgo(last.finished_at ?? last.started_at)}` : ""}

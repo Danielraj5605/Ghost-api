@@ -7,7 +7,7 @@ import { EndpointList } from "../components/Endpoints";
 import { LiveBrowser } from "../components/LiveBrowser";
 import { PhaseStepper } from "../components/PhaseStepper";
 import { Timeline } from "../components/Timeline";
-import { Button, Card, cx, EmptyState, ErrorBox, Pill, plural, SectionTitle, Skeleton, Tabs } from "../components/ui";
+import { AgentText, Button, Card, cx, EmptyState, ErrorBox, Pill, plural, SectionTitle, Skeleton, Tabs } from "../components/ui";
 import { useRunStream } from "../hooks/useRunStream";
 import { stepStates, type RunState } from "../state/runReducer";
 import type { Box } from "../types";
@@ -37,7 +37,12 @@ function Summary({ state }: { state: RunState }) {
           </h2>
           <p className="text-sm text-muted">
             {f.status}
-            {f.reason ? ` · ${f.reason}` : ""}
+            {f.reason && (
+              <>
+                {" · "}
+                <AgentText text={f.reason} />
+              </>
+            )}
             {f.lessons_learned ? ` · ${plural(f.lessons_learned, "lesson")} saved for next time` : ""}
           </p>
           {f.generation_error && <p className="mt-1 text-sm text-bad">{f.generation_error}</p>}
@@ -147,7 +152,7 @@ export function Run() {
               <span>finished</span>
             )}
           </div>
-          <h1 className="truncate text-xl font-bold">{state.domain || "Starting…"}</h1>
+          <h1 className="text-xl font-bold break-all">{state.domain || "Starting…"}</h1>
           {state.goal && <p className="truncate text-sm text-muted">Goal: {state.goal}</p>}
         </div>
         {live && state.runId !== null && (

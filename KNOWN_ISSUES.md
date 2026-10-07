@@ -6,7 +6,7 @@ what goes wrong, how it was found, and a suggested fix.
 **Priority:** P1 = safety or wrong results, fix first · P2 = makes sites or features fail ·
 P3 = quality and polish · Env = outside the code.
 
-Last updated: 2026-10-07.
+Last updated: 2026-10-07 (after the UI work).
 
 ---
 
@@ -177,13 +177,19 @@ Last updated: 2026-10-07.
 
 ## Documentation and project
 
-### 21. README setup assumes PowerShell
+### 21. ~~README setup assumes PowerShell~~ (fixed 2026-10-07)
+- **Fixed:** Getting started now has separate blocks for Command Prompt (`activate.bat`),
+  PowerShell (`Activate.ps1`, with the execution-policy hint) and macOS/Linux, plus the
+  `python -m ghost_api` fallback.
 - **Problem:** The setup steps use `.venv\Scripts\Activate.ps1`, which does nothing in
   Command Prompt (cmd). This confused a first run.
 - **Fix:** Show both: `activate.bat` for cmd and `Activate.ps1` for PowerShell, plus the
   `python -m ghost_api` alternative.
 
-### 22. No demo GIF
+### 22. ~~No demo GIF~~ (fixed 2026-10-07)
+- **Fixed:** The README opens with a GIF of a real dashboard run on quotes.toscrape.com and
+  has screenshots of the terminal UI, the dashboard (desktop and phone) and `report.html`
+  (`docs/images/`).
 - **Problem:** The last unticked item in the acceptance checklist.
 - **Fix:** Record a `--headed` run on the demo shop.
 
@@ -196,6 +202,21 @@ Last updated: 2026-10-07.
 - **Problem:** It was committed by mistake in one commit (`ecb4da9`) and removed in the next.
   It contains only a copy of the package, no secrets.
 - **Fix:** Nothing needed, unless a clean history matters before publishing.
+
+### 27. README images are recorded by hand
+- **Problem:** The screenshots, the terminal SVG and the GIF in `docs/images/` were made with
+  one-off Playwright and Rich scripts. When the UI changes they go stale, and nothing checks.
+- **Fix:** Commit a `scripts/record_readme_media.py` that runs the demo shop or a fixed site,
+  and re-run it before releases.
+
+### 28. Found and fixed while recording the README (for the record)
+Real runs found three bugs that the demo-shop tests had missed; each now has a test:
+- With the AI agent on, the dashboard's live browser view stayed empty when the agent
+  finished at step 1 (quotes.toscrape.com): the first screenshot was saved but never sent.
+- On phones, long schema types (`array of array of integer | string`) pushed the endpoint
+  panels wider than the screen.
+- `ghost-api ui > log.txt` crashed on Windows: the log file's encoding (cp1252) can't hold
+  the `◆` in the banner. The CLI now prints `?` for characters the output can't show.
 
 ---
 
@@ -212,3 +233,6 @@ Last updated: 2026-10-07.
   fast alone and in later full runs; not reproduced. Most likely the Windows policy above.
 - **Mitigation:** `faulthandler_timeout = 300` in `pyproject.toml` prints a stack trace if
   a test runs over 5 minutes, so the next stall will show where it is stuck.
+- **Seen again 2026-10-07:** a full run took 68 minutes instead of about 3 (all 409 tests
+  passed). The stack trace was lost because only the last lines of output were kept; next
+  time, run with `pytest -q 2>&1 | tee pytest.log` and read the trace.

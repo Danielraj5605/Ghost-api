@@ -76,12 +76,23 @@ def main(
     ] = False,
 ) -> None:
     load_env()
+    for stream in (sys.stdout, sys.stderr):
+        safe_output(stream)
     _options["plain"] = plain
     if ctx.invoked_subcommand is None:
         if not sys.stdin.isatty():
             console.print(ctx.get_help())
             raise typer.Exit()
         _interactive(ctx)
+
+
+def safe_output(stream: object) -> None:
+    """Never crash on a character the output can't show (e.g. '◆' when output is
+    redirected to a file on Windows, which uses cp1252): print a '?' instead."""
+    encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+    reconfigure = getattr(stream, "reconfigure", None)
+    if encoding != "utf8" and reconfigure is not None:
+        reconfigure(errors="replace")
 
 
 def _interactive(ctx: typer.Context) -> None:

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { SchemaTree, typeLabel } from "./SchemaTree";
 import { describeAction } from "./Timeline";
-import { MethodBadge, plural, timeAgo } from "./ui";
+import { AgentText, MethodBadge, plural, timeAgo } from "./ui";
 
 afterEach(cleanup);
 
@@ -52,5 +52,13 @@ describe("small helpers", () => {
   it("renders a method badge", () => {
     render(<MethodBadge method="GET" />);
     expect(screen.getByText("GET").className).toContain("text-info");
+  });
+});
+
+describe("AgentText", () => {
+  it("shows `backticks` as code", () => {
+    const { container } = render(<AgentText text="The endpoint `/api/quotes` covers it" />);
+    expect(container.querySelector("code")?.textContent).toBe("/api/quotes");
+    expect(container.textContent).toBe("The endpoint /api/quotes covers it");
   });
 });

@@ -1,12 +1,14 @@
 """Phase 1-2: events, the UI-free pipeline, and the terminal renderer."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
 from evals.demo_shop import serve
+from ghost_api.agent.tools import Decision
 from ghost_api.events import (
     AgentStep,
     ClientGenerated,
@@ -19,9 +21,11 @@ from ghost_api.events import (
     RequestCaptured,
     RunFinished,
     RunStarted,
+    Screenshot,
     UsageUpdated,
     VerifyRound,
 )
+from ghost_api.llm.gateway import LLMGateway, LLMReply
 from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter, RobotsPolicy
 from ghost_api.pipeline import RunOptions, explore_site, finish, open_session
@@ -113,6 +117,54 @@ def test_pipeline_emits_and_stores_the_whole_run(tmp_path: Path) -> None:
     # The plain visit saved a screenshot for the live view.
     shot = next(e for e in seen if e.kind == "screenshot")
     assert (tmp_path / "t_files" / "runs" / str(seen[0].run_id) / shot.name).exists()  # type: ignore[attr-defined]
+
+
+class FinishAtOnce(LLMGateway):
+    """An agent that decides the goal is already covered at step 1 (no quota used)."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def ask(self, messages: Any, response_model: Any = None, temperature: float = 0.0) -> Any:
+        decision = Decision(thought="Already covered", action="finish", goal_covered=True)
+        self.usage.answered += 1
+        return LLMReply("", "fake", "m", False, decision)
+
+
+def test_agent_run_that_finishes_at_once_still_shows_the_page(tmp_path: Path) -> None:
+    """Live check found it: the start screenshot was saved but never announced."""
+    shop = serve(0)
+    url = f"http://127.0.0.1:{shop.server_address[1]}/"
+    db = tmp_path / "t.db"
+    bus = EventBus()
+    seen: list[Event] = []
+    bus.subscribe(seen.append)
+    opts = RunOptions(out=tmp_path / "out", no_probe=True, no_generate=True, no_verify=True)
+    try:
+        with Store(db) as store:
+            s = open_session(
+                store,
+                bus,
+                "127.0.0.1",
+                url,
+                "list products",
+                False,
+                RateLimiter(50),
+                RobotsPolicy.allow_all("127.0.0.1"),
+                FinishAtOnce(),
+                30,
+                screens_root=db,
+            )
+            explore_site(s, opts, use_agent=True)
+    finally:
+        shop.shutdown()
+
+    shots = [e for e in seen if isinstance(e, Screenshot)]
+    assert [e.name for e in shots] == ["start.jpg"]
+    assert shots[0].url.startswith(url)
+    assert (tmp_path / "t_files" / "runs" / str(s.run_id) / "start.jpg").exists()
+    step = next(e for e in seen if isinstance(e, AgentStep))
+    assert step.action == "finish"
 
 
 # --- the terminal renderer ---

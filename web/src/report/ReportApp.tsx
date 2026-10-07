@@ -83,7 +83,7 @@ function EndpointsTab({ endpoints }: { endpoints: EndpointDetail[] }) {
     );
   }
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
       <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1">
         <EndpointList endpoints={endpoints} selected={selected} onSelect={setSelected} />
       </div>
@@ -110,7 +110,7 @@ function FilesTab({ files, empty }: { files: ReportData["files"]; empty: string 
   const file = files.find((f) => f.name === name) ?? files[0];
   if (!file) return <EmptyState icon={<Code2 className="size-8" />} title={empty} />;
   return (
-    <div className="grid gap-3 lg:grid-cols-[14rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)]">
       <ul className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Files">
         {files.map((f) => (
           <li key={f.name} className="shrink-0">
@@ -183,7 +183,7 @@ export function ReportApp({ data }: { data: ReportData | null }) {
         <section className="ghost-glow -mx-4 -mt-6 space-y-4 px-4 pt-8">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-2xl font-bold sm:text-3xl">{data.domain}</h1>
+              <h1 className="text-2xl font-bold break-all sm:text-3xl">{data.domain}</h1>
               <p className="mt-1 text-muted">Goal: {run.goal}</p>
               <p className="mt-1 truncate text-xs text-muted">
                 Started at <span className="font-mono">{run.start_url}</span> · run #{run.id}

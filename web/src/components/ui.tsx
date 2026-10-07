@@ -182,3 +182,21 @@ export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   return n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** Text from the agent, where `backticks` mark code (the LLM writes Markdown-ish). */
+export function AgentText({ text }: { text: string }) {
+  const parts = text.split(/`([^`\n]+)`/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 ? (
+          <code key={i} className="rounded bg-surface-2 px-1 py-px font-mono text-[0.85em] not-italic">
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}

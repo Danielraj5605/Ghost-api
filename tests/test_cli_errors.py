@@ -64,3 +64,20 @@ def test_unreachable_site_gives_a_clear_message(tmp_path: Path) -> None:
     )
     assert "refused the connection" in result.output
     assert "Traceback" not in result.output
+
+
+def test_output_that_cannot_show_symbols_does_not_crash() -> None:
+    """Found while recording the README: `ghost-api ui > log.txt` crashed on '◆'."""
+    import io
+
+    from ghost_api.cli import safe_output
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+    safe_output(stream)
+    stream.write("◆ Ghost API dashboard")
+    stream.flush()
+    assert raw.getvalue() == b"? Ghost API dashboard"
+    utf8 = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    safe_output(utf8)
+    assert utf8.errors == "strict"  # UTF-8 output is left alone

@@ -2,9 +2,13 @@
 
 **An AI agent that turns any website into a typed, tested API client.**
 
-Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python client library for it, with tests.
+Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python (or TypeScript) client library for it, with tests.
 
-> **Status:** Version 0.1.0. All 11 build stages are done and evaluated on four sites (see [Evaluation](#evaluation)): every goal endpoint found, nothing invented, every generated client test passing, for 1–10 free LLM calls per site. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for how it was built.
+![The Ghost API dashboard during a real run on quotes.toscrape.com](docs/images/dashboard-demo.gif)
+
+<sub>A real run on quotes.toscrape.com from the web dashboard (`ghost-api ui`): the agent loads the page, the API call is tested, a client is generated and verified, and "Try it" calls the endpoint. 2 free LLM calls, about 20 seconds.</sub>
+
+> **Status:** Version 0.1.0. All 11 build stages are done and evaluated on four sites (see [Evaluation](#evaluation)): every goal endpoint found, nothing invented, every generated client test passing, for 1–10 free LLM calls per site. It has a live terminal UI, a local web dashboard and a shareable one-file HTML report. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for how it was built.
 
 ---
 
@@ -20,6 +24,7 @@ Give Ghost API a website and a plain-English goal. It opens the site in a real b
 - [Features](#features)
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
+- [Three ways to see the results](#three-ways-to-see-the-results)
 - [Usage](#usage)
 - [Output](#output)
 - [Project structure](#project-structure)
@@ -275,6 +280,11 @@ Ghost API improves with use:
 - **Memory:** `refresh` re-checks a known site with as little work as possible
 - **Report and OpenAPI 3.1** export, plus a replayable log of every run
 - **Free:** runs on free LLM tiers with fallback between providers, caching and budgets
+- **Live terminal UI** in the style of Claude Code: phase stepper, compact step log, a status
+  line that updates in place, and a summary card with a copy-paste "use it" line
+- **Web dashboard** (`ghost-api ui`): start runs, watch the agent's browser and reasoning live,
+  browse endpoints with their schemas, call them with "Try it", read and download the code
+- **Shareable report:** every run writes `report.html`, one file that works offline
 
 - **TypeScript client** too (`--lang typescript`): interfaces, a fetch-based client for Node 18+
   and browsers, async page iterators, and Node tests; passes `tsc --strict`
@@ -295,6 +305,7 @@ Ghost API improves with use:
 | Schema inference | genson |
 | Code generation | Jinja2 |
 | CLI and terminal UI | Typer + Rich |
+| Web dashboard | FastAPI + uvicorn (local server), React + Vite + Tailwind CSS (frontend, prebuilt) |
 | Tests | pytest |
 | Storage | SQLite |
 
@@ -306,30 +317,97 @@ Runs on an ordinary laptop: 8 GB RAM, no GPU.
 
 **Requirements:** Python 3.11+, Git, and at least one free LLM key: [Google AI Studio](https://aistudio.google.com/) (Gemini), [Groq](https://console.groq.com/) or [OpenRouter](https://openrouter.ai/). Having two gives a fallback.
 
+Pick the block for your terminal. You don't need Node.js: the dashboard comes prebuilt.
+
+**Windows, Command Prompt (cmd)**
+
+```bat
+git clone <your-repo-url> ghost-api
+cd ghost-api
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -e .
+playwright install chromium
+copy .env.example .env
+```
+
+**Windows, PowerShell**
+
+```powershell
+git clone <your-repo-url> ghost-api
+cd ghost-api
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+playwright install chromium
+Copy-Item .env.example .env
+```
+
+If PowerShell says running scripts is disabled, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use Command Prompt.
+
+**macOS / Linux**
+
 ```bash
 git clone <your-repo-url> ghost-api
 cd ghost-api
-
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
+python3 -m venv .venv
 source .venv/bin/activate
-
-pip install -e .            # or: pip install -e ".[dev]" for tests and linters
+pip install -e .
 playwright install chromium
+cp .env.example .env
+```
 
-cp .env.example .env        # then add your keys to .env
+Then put at least one key in `.env` and check it:
+
+```bash
 ghost-api doctor            # checks each key with one tiny call
 ```
 
-`.env`:
+You'll know the environment is active when your prompt starts with `(.venv)`. Use
+`pip install -e ".[dev]"` instead if you want the tests and linters. If the `ghost-api`
+command is blocked or not found, `python -m ghost_api` does the same thing
+(for example `python -m ghost_api doctor`).
+
+What `.env` looks like:
 
 ```
 GEMINI_API_KEY=your_key_here
 GROQ_API_KEY=optional_fallback_key
 OPENROUTER_API_KEY=optional_second_fallback
 ```
+
+---
+
+## Three ways to see the results
+
+**1. The terminal.** `ghost-api run ...`, or just `ghost-api` to be asked for a URL and a
+goal. It shows each phase and agent step as it happens, with a status line that updates in
+place, and ends with a summary card. Add `--plain` for simple lines (logs, CI).
+
+![The terminal UI after a real run on quotes.toscrape.com](docs/images/terminal-run.svg)
+
+**2. The web dashboard.** `ghost-api ui` opens it in your browser (local only, at
+`http://127.0.0.1:8800`). Start a run, watch the agent's browser and reasoning live, then
+browse everything it found. Every past run can be replayed.
+
+| Start a run | Watch it live |
+|---|---|
+| ![Home page with the URL and goal form](docs/images/dashboard-home.png) | ![Live run with the browser view, activity and endpoints](docs/images/dashboard-run.png) |
+| **Endpoints and their fields** | **"Try it": call an endpoint with your own parameters** |
+| ![Site page with the endpoint list and details](docs/images/dashboard-site.png) | ![Try it showing a live response](docs/images/dashboard-try-it.png) |
+| **The generated client** | **On a phone** |
+| ![Client code tab with Python and TypeScript](docs/images/dashboard-code.png) | <img src="docs/images/dashboard-phone.png" alt="The site page on a phone" width="260"> |
+
+"Try it" only calls endpoints that read data. Anything that looks like it changes data
+(add to cart, delete, update...) is refused.
+
+**3. The shareable report.** Every run writes `output/<site>/report.html`: one file with
+the endpoints, the run's activity, the generated code, the OpenAPI spec and the summary. It
+works offline and needs no server, so you can email it or attach it to an issue. Example
+values of sensitive parameters (keys, tokens) are left out.
+
+![report.html opened from disk](docs/images/report-html.png)
 
 ---
 
@@ -353,7 +431,7 @@ ghost-api refresh quotes.toscrape.com --no-llm   # never call the LLM
 ghost-api inspect quotes.toscrape.com
 ghost-api inspect --run 12
 
-# Write report.md and openapi.yaml from stored data
+# Write report.md, report.html and openapi.yaml from stored data
 ghost-api report quotes.toscrape.com
 
 # Regenerate the client from stored data (no browser; --no-llm skips the naming call)
@@ -365,6 +443,16 @@ ghost-api verify quotes.toscrape.com
 
 # Check that your LLM keys work
 ghost-api doctor
+
+# Open the web dashboard (local only)
+ghost-api ui
+ghost-api ui --port 8900 --no-open
+
+# Ask for the URL and goal interactively
+ghost-api
+
+# Simple line-by-line output for logs and CI
+ghost-api --plain run https://quotes.toscrape.com/scroll --goal "list quotes"
 
 # Capture without the AI agent (just load and scroll)
 ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes" --no-agent
@@ -397,7 +485,8 @@ output/quotes.toscrape.com/
 |-- models.py                        # Pydantic data models
 |-- test_quotes_toscrape_client.py   # Live tests (run automatically by `run` and `verify`)
 |-- openapi.yaml                     # OpenAPI 3.1 spec
-+-- report.md                        # Endpoints, confidence, evidence, reasoning log
+|-- report.md                        # Endpoints, confidence, evidence, reasoning log
++-- report.html                      # The same and more, as one shareable offline page
 ```
 
 Excerpt from a real `report.md`:
@@ -423,7 +512,11 @@ Excerpt from a real `report.md`:
 ```
 ghost-api/
 |-- ghost_api/
-|   |-- cli.py              # Commands: run, refresh, generate, verify, report, inspect, doctor
+|   |-- cli.py              # Commands: run, refresh, generate, verify, report, inspect, doctor, ui
+|   |-- pipeline.py         # A run from start to finish, as events (no printing)
+|   |-- events.py           # The events every interface shows (stored for replay)
+|   |-- ui/terminal.py      # Live terminal UI (Rich)
+|   |-- web/                # Dashboard server (FastAPI) and the prebuilt frontend
 |   |-- config.py           # Settings and budgets
 |   |-- errors.py           # Plain-language error messages
 |   |-- net.py              # robots.txt and rate limiting
@@ -434,11 +527,13 @@ ghost-api/
 |   |-- probe/              # Safe replays and hypothesis testing
 |   |-- generator/          # Naming, models, client spec, Jinja2 templates
 |   |-- verify/             # Run generated tests, classify failures, repair
-|   |-- export/             # report.md, OpenAPI 3.1, confidence
+|   |-- export/             # report.md, report.html, OpenAPI 3.1, confidence
 |   |-- llm/                # Provider gateway: fallback, cooldown, validation, cache
 |   +-- memory/             # SQLite store, lessons, memory for refresh
-|-- tests/                  # 330+ tests (no LLM quota needed)
+|-- tests/                  # 400+ tests (no LLM quota needed)
 |-- evals/                  # Demo shop, evaluation sites, scoring script
+|-- web/                    # Dashboard and report frontend source (React + Vite + Tailwind)
+|-- docs/images/            # README screenshots
 |-- .env.example
 |-- pyproject.toml
 |-- README.md
@@ -530,5 +625,7 @@ The full, prioritised list of known problems is in [KNOWN_ISSUES.md](KNOWN_ISSUE
 | 8 | Memory | Done |
 | 9 | Reporting and OpenAPI export | Done |
 | 10 | Evaluation and polish | Done |
+| UI 0–6 | Event pipeline, live terminal, web dashboard, report.html, docs | Done |
 
-Full details are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Full details are in [IMPLEMENTATION.md](IMPLEMENTATION.md). To work on the dashboard itself,
+see [web/README.md](web/README.md).

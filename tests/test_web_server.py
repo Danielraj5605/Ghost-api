@@ -222,3 +222,11 @@ def test_doctor(env: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     ]
     monkeypatch.setattr(server, "check_providers", lambda: rows)
     assert env["client"].post("/api/doctor", headers=AUTH).json() == rows
+
+
+def test_launch_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GHOST_API_UI_TOKEN", raising=False)
+    first, second = server.launch_token(), server.launch_token()
+    assert first != second and len(first) >= 32
+    monkeypatch.setenv("GHOST_API_UI_TOKEN", "dev-token")
+    assert server.launch_token() == "dev-token"
