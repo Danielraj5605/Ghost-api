@@ -11,6 +11,7 @@ from __future__ import annotations
 {% if spec.credentials %}
 import os
 {% endif %}
+import json
 import time
 {% if spec.methods | selectattr("page_param") | list %}
 from collections.abc import Iterator
@@ -40,6 +41,8 @@ except ImportError:  # used as loose files rather than a package
 
 USER_AGENT = "{{ user_agent }}"
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+# Guards some sites put before JSON so other sites can't read it (Google: ")]}'").
+JSON_GUARDS = (")]}'", "while(1);", "for(;;);")
 # Environment variable for each credential.
 CREDENTIAL_ENV: dict[str, str] = {{ spec.credentials | env_map | pyrepr }}
 
@@ -246,7 +249,7 @@ class {{ spec.class_name }}:
                     response.status_code, response.reason_phrase, _safe_json(response)
                 )
             try:
-                return response.json()
+                return _parse_json(response.text)
             except ValueError as exc:
                 raise {{ spec.error_class }}(
                     response.status_code, "response is not JSON", response.text[:500]
@@ -254,9 +257,18 @@ class {{ spec.class_name }}:
         raise AssertionError("unreachable")
 
 
+def _parse_json(text: str) -> Any:
+    stripped = text.lstrip()
+    for guard in JSON_GUARDS:
+        if stripped.startswith(guard):
+            stripped = stripped[len(guard) :].lstrip(",").lstrip()
+            break
+    return json.loads(stripped)
+
+
 def _safe_json(response: httpx.Response) -> Any:
     try:
-        return response.json()
+        return _parse_json(response.text)
     except ValueError:
         return response.text[:500]
 

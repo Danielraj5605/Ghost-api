@@ -138,6 +138,25 @@ def is_json_content_type(content_type: str | None) -> bool:
     return bool(content_type) and "json" in content_type.lower()  # type: ignore[union-attr]
 
 
+# Some sites put a guard before their JSON so another site's <script> tag can't read it
+# (Google: ")]}'"; older sites: "while(1);" or "for(;;);"). Browsers' own code strips it.
+XSSI_PREFIXES = (")]}'", "while(1);", "for(;;);")
+
+
+def strip_xssi(text: str) -> str:
+    """Remove an anti-hijacking prefix from a JSON response, if there is one."""
+    stripped = text.lstrip()
+    for prefix in XSSI_PREFIXES:
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].lstrip(",").lstrip()
+    return text
+
+
+def parse_response_json(text: str) -> Any:
+    """Parse a JSON response body, allowing an anti-hijacking prefix. Raises ValueError."""
+    return json.loads(strip_xssi(text))
+
+
 def classify(resource_type: str, url: str, target_host: str) -> str | None:
     """Return None if this request should be kept, otherwise the reason it was dropped.
 

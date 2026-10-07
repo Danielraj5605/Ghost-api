@@ -53,7 +53,11 @@ class TrafficRecorder:
         new: list[CapturedRequest] = []
         pending, self._pending = self._pending, []
         for response in pending:
-            built = self._build(response)
+            try:
+                built = self._build(response)
+            except Exception:  # noqa: BLE001 - one odd response must not stop the run
+                self.dropped["unreadable"] += 1
+                continue
             if built is None:
                 continue
             new.append(self.add(*built))
@@ -72,15 +76,29 @@ class TrafficRecorder:
         try:
             resp_headers = response.all_headers()
             req_headers = request.all_headers()
-            body = response.text()
+            body_bytes = response.body()
+            post_bytes = request.post_data_buffer
         except PlaywrightError:
             # Body is gone (page navigated away, request aborted, ...).
             self.dropped["no-body"] += 1
             return None
 
+        # Binary bodies (protobuf, images sent over fetch...) are not JSON APIs. Decoding
+        # them strictly here keeps them out; Playwright's .text() would raise mid-run.
+        body = _utf8(body_bytes)
+        post_data = _utf8(post_bytes) if post_bytes else None
+        if body is None or (post_bytes and post_data is None):
+            self.dropped["binary"] += 1
+            return None
+
         resp_ctype = resp_headers.get("content-type")
         if not filters.is_json_content_type(resp_ctype) and not _looks_like_json(body):
             self.dropped["non-json"] += 1
+            return None
+        body = filters.strip_xssi(body)
+        if body.strip() and not _looks_like_json(body):
+            # Says JSON but isn't (e.g. Google's length-prefixed batchexecute envelope).
+            self.dropped["invalid-json"] += 1
             return None
 
         # Redact the full body first: truncated JSON can't be parsed for key-based redaction.
@@ -90,14 +108,14 @@ class TrafficRecorder:
             safe_body = safe_body[:MAX_BODY_CHARS]
 
         req_ctype = req_headers.get("content-type")
-        raw = RawRequest(request.method, request.url, dict(req_headers), request.post_data)
+        raw = RawRequest(request.method, request.url, dict(req_headers), post_data)
         captured = CapturedRequest(
             method=request.method,
             url=filters.redact_url(request.url),
             status=response.status,
             resource_type=request.resource_type,
             req_headers=filters.redact_headers(req_headers),
-            req_body=filters.redact_body(request.post_data, req_ctype),
+            req_body=filters.redact_body(post_data, req_ctype),
             req_content_type=req_ctype,
             resp_content_type=resp_ctype,
             resp_body=safe_body,
@@ -105,6 +123,13 @@ class TrafficRecorder:
             third_party=filters.is_third_party(request.url, self.target_host),
         )
         return captured, raw
+
+
+def _utf8(data: bytes) -> str | None:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _looks_like_json(body: str) -> bool:

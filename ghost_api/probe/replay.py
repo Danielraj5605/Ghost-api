@@ -228,7 +228,7 @@ class Replayer:
             return ReplayResult(0, None, f"network error: {type(exc).__name__}")
 
         try:
-            body = resp.json()
+            body = filters.parse_response_json(resp.text)
         except ValueError:
             body = None
         ctype = resp.headers.get("content-type")
@@ -241,7 +241,11 @@ class Replayer:
             req_body=filters.redact_body(raw.body, headers.get("content-type")),
             req_content_type=headers.get("content-type"),
             resp_content_type=ctype,
-            resp_body=filters.redact_body(resp.text, ctype) if body is not None else None,
+            resp_body=(
+                filters.redact_body(filters.strip_xssi(resp.text), ctype)
+                if body is not None
+                else None
+            ),
             third_party=filters.is_third_party(raw.url, self.target_host),
         )
         error = None if body is not None else "response is not JSON"

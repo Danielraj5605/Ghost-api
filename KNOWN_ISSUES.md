@@ -218,6 +218,25 @@ Real runs found three bugs that the demo-shop tests had missed; each now has a t
 - `ghost-api ui > log.txt` crashed on Windows: the log file's encoding (cp1252) can't hold
   the `◆` in the banner. The CLI now prints `?` for characters the output can't show.
 
+### 29. Found and fixed from a run on Google Maps (for the record)
+A real run on `https://www.google.com/maps` failed at once. Fixed, each with a test in
+`tests/test_google_maps_findings.py`:
+- Exploration stopped with `'utf-8' codec can't decode byte 0x8b`: a binary (compressed or
+  protobuf) response was read as text. Binary bodies are now skipped and counted, and one
+  unreadable response can no longer stop a run.
+- Google puts `)]}'` before its JSON so other sites can't read it. Capture, replay and the
+  generated Python and TypeScript clients now remove it. Responses that claim to be JSON
+  but still don't parse (Google's `batchexecute` envelope) are dropped.
+- The generated client did not compile when responses had deeply nested arrays of mixed
+  types: merging union types split inside brackets and lost a `]`.
+- A map-tile URL (`/maps/vt/pb=!1m8!3m7...`) became a 300-character method name. Segments
+  that hold encoded data are now parameters (`/maps/vt/{pb}`), and names keep at most the
+  last 3 path words.
+- A "response is not JSON" failure was treated as a network error and retried after 20 s,
+  because the word "Timeout" appears in every traceback (`httpx.Timeout`). It is now its own
+  kind of failure, and network errors are matched by their exception names.
+- Endpoint tables printed 9 levels of nested array types; labels now stop at 3 levels.
+
 ---
 
 ## Environment (not code)

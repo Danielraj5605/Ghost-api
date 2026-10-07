@@ -43,6 +43,10 @@ def is_identifier(name: str) -> bool:
     return name.isidentifier() and not keyword.iskeyword(name)
 
 
+MAX_NAME_WORDS = 3
+MAX_WORD_CHARS = 30
+
+
 def path_words(endpoint: Endpoint) -> list[str]:
     """Meaningful literal segments: /api/v1/books/{id}/reviews -> ['books', 'reviews']."""
     words = []
@@ -51,8 +55,9 @@ def path_words(endpoint: Endpoint) -> list[str]:
             continue
         if _VERSION_RE.match(seg):
             continue
-        words.append(snake(seg))
-    return words
+        words.append(snake(seg)[:MAX_WORD_CHARS].rstrip("_"))
+    # Keep names readable: the last few words say what the endpoint is.
+    return words[-MAX_NAME_WORDS:]
 
 
 def default_method_name(endpoint: Endpoint) -> str:

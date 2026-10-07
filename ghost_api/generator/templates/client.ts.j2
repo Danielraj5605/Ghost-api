@@ -48,6 +48,8 @@ export interface {{ spec.class_name }}Options {
 
 const USER_AGENT = {{ user_agent | json }};
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Guards some sites put before JSON so other sites can't read it (Google: ")]}'").
+const JSON_GUARDS = [")]}'", "while(1);", "for(;;);"];
 const CREDENTIAL_ENV: Record<string, string> = {
 {% for c in spec.credentials %}
   {{ c.arg | camel | json }}: {{ c.env | json }},
@@ -57,6 +59,13 @@ const CREDENTIAL_ENV: Record<string, string> = {
 function readEnv(name: string): string | undefined {
   const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
   return proc?.env?.[name];
+}
+
+function parseJson(text: string): unknown {
+  let body = text.trimStart();
+  const guard = JSON_GUARDS.find((g) => body.startsWith(g));
+  if (guard) body = body.slice(guard.length).replace(/^,/, "").trimStart();
+  return JSON.parse(body);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -234,7 +243,7 @@ export class {{ spec.class_name }} {
       const text = await response.text();
       let data: unknown;
       try {
-        data = JSON.parse(text);
+        data = parseJson(text);
       } catch {
         throw new {{ spec.error_class }}(response.status, "response is not JSON", text.slice(0, 500));
       }

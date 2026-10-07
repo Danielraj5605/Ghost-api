@@ -33,18 +33,30 @@ def build_schema(samples: list[Any]) -> dict[str, Any] | None:
     return schema
 
 
-def type_label(schema: dict[str, Any] | None) -> str:
-    """Short human-readable description: 'object', 'array[object]', 'string|null'."""
+MAX_LABEL_DEPTH = 3
+MAX_LABEL_CHARS = 60
+
+
+def type_label(schema: dict[str, Any] | None, depth: int = 0) -> str:
+    """Short human-readable description: 'object', 'array[object]', 'string|null'.
+
+    Deeply nested arrays (Google Maps returns 9 levels) are cut at MAX_LABEL_DEPTH."""
     if not schema:
         return "?"
+    if depth >= MAX_LABEL_DEPTH:
+        return "…"
     if "anyOf" in schema:
-        return "|".join(type_label(s) for s in schema["anyOf"])
+        return "|".join(type_label(s, depth) for s in schema["anyOf"])
     kind = schema.get("type", "any")
     if isinstance(kind, list):
         return "|".join(kind)
     if kind == "array":
-        return f"array[{type_label(schema.get('items'))}]"
+        return f"array[{type_label(schema.get('items'), depth + 1)}]"
     return str(kind)
+
+
+def _shorten(text: str) -> str:
+    return text if len(text) <= MAX_LABEL_CHARS else text[: MAX_LABEL_CHARS - 1] + "…"
 
 
 def top_level_fields(schema: dict[str, Any] | None, limit: int = 8) -> str:
@@ -58,7 +70,7 @@ def top_level_fields(schema: dict[str, Any] | None, limit: int = 8) -> str:
         prefix = "[] of "
     props = target.get("properties")
     if not props:
-        return prefix + type_label(target)
+        return _shorten(prefix + type_label(target))
     names = [f"{k}[]" if v.get("type") == "array" else k for k, v in props.items()]
     shown = ", ".join(names[:limit])
     more = f" (+{len(names) - limit} more)" if len(names) > limit else ""

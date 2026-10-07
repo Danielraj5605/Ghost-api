@@ -90,7 +90,7 @@ class ModelBuilder:
             type_expr = self.type_for(sub, pascal(key))
             if type_expr == "None":  # only ever seen as null: real type unknown
                 type_expr = "Any"
-            nullable = "None" in type_expr.split(" | ") or type_expr == "Any"
+            nullable = "None" in _top_level_members(type_expr) or type_expr == "Any"
             optional = key not in required or nullable
             if optional and not nullable:
                 type_expr = _union([type_expr, "None"])
@@ -113,10 +113,26 @@ def _is_object(schema: dict[str, Any]) -> bool:
     return schema.get("type") == "object" and bool(schema.get("properties"))
 
 
+def _top_level_members(type_expr: str) -> list[str]:
+    """'int | list[int | None] | None' -> ['int', 'list[int | None]', 'None']: split
+    only outside brackets, or nested unions fall apart (seen on Google Maps data)."""
+    members, depth, start = [], 0, 0
+    for i, ch in enumerate(type_expr):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        elif depth == 0 and type_expr.startswith(" | ", i):
+            members.append(type_expr[start:i])
+            start = i + 3
+    members.append(type_expr[start:])
+    return members
+
+
 def _union(parts: Any) -> str:
     seen: list[str] = []
     for part in parts:
-        for p in str(part).split(" | "):
+        for p in _top_level_members(str(part)):
             if p not in seen:
                 seen.append(p)
     if "Any" in seen:

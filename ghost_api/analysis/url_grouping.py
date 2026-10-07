@@ -28,6 +28,11 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TOKEN_RE = re.compile(r"^(?=.*\d)(?=.*[A-Za-z])[A-Za-z0-9_]{20,}$")
 _SLUG_RE = re.compile(r"^[a-z0-9]+([-_.][a-z0-9]+)+$", re.I)
 _VERSION_RE = re.compile(r"^v\d+(\.\d+)*$", re.I)
+# Encoded data rather than a name: "pb=!1m8!3m7..." (Google Maps tiles), "@12.9,77.6,15z",
+# matrix parameters ("items;page=2"), or anything very long.
+_OPAQUE_RE = re.compile(r"[!=;,@]")
+OPAQUE_LENGTH = 48
+_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]{0,30})=")
 
 # A varying segment with at least this many distinct values becomes a parameter even
 # when the values are plain words.
@@ -47,7 +52,12 @@ def looks_like_id(segment: str) -> bool:
         or _HEX_RE.match(segment)
         or _DATE_RE.match(segment)
         or _TOKEN_RE.match(segment)
+        or is_opaque(segment)
     )
+
+
+def is_opaque(segment: str) -> bool:
+    return len(segment) > OPAQUE_LENGTH or bool(_OPAQUE_RE.search(segment))
 
 
 def _is_leading_version(pos: int, segment: str, length: int) -> bool:
@@ -187,7 +197,10 @@ def _param_names(skeleton: list[str | None], samples: list[list[str]]) -> list[s
     for idx, pos in enumerate(param_positions):
         prev = skeleton[pos - 1] if pos > 0 else None
         values = [segs[pos] for segs in samples]
-        if idx == len(param_positions) - 1:
+        keys = {m.group(1) for v in values if (m := _KEY_RE.match(v))}
+        if len(keys) == 1 and all(_KEY_RE.match(v) for v in values):
+            name = keys.pop().lower()  # /maps/vt/{pb} for "pb=!1m8..."
+        elif idx == len(param_positions) - 1:
             if all(looks_like_id(v) for v in values):
                 name = "id"
             else:  # /author/{author}, /indexes/{index}
