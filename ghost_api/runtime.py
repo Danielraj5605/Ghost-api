@@ -110,8 +110,7 @@ class SiteRuntime:
         ops = []
         for ep in self.endpoints:
             allowed = ep.key in self.allowed
-            probe = RawRequest(ep.method, f"https://{ep.host}{ep.path_template}", {}, None)
-            if not allowed and (ep.replayable is False or not is_replayable(probe)):
+            if not is_callable(ep, allowed):
                 continue  # may change data, or can't be called outside the browser
             names = self.names[ep.key]
             ops.append(
@@ -119,7 +118,7 @@ class SiteRuntime:
                     names.method_name,
                     names.summary,
                     ep,
-                    self._inputs(ep),
+                    inputs_for(ep, self.samples.get(ep.key, [])),
                     allowed,
                     ep.pagination or self._guess_pagination(ep),
                 )
@@ -165,7 +164,7 @@ class SiteRuntime:
         rows = 0
         for number in range(1, min(max_pages, MAX_PAGES) + 1):
             result = self.call(op, params)
-            records = records_of(result.body) if result.ok else []
+            records = records_of(result.body, is_single(op)) if result.ok else []
             fresh = [k for k in item_fingerprints(records) if k not in seen]
             if result.ok and records and not fresh:
                 return  # the "next page" repeated the last one: pagination ignored
@@ -194,24 +193,6 @@ class SiteRuntime:
         raise OperationError(
             f"{op.label} needs a fresh key or session. Run `ghost-api refresh {self.site}` first."
         )
-
-    def _inputs(self, ep: Endpoint) -> list[Input]:
-        inputs = [
-            Input(p.name, "path", p.type, (p.examples or [""])[0], True) for p in ep.path_params
-        ]
-        inputs += [
-            Input(p.name, "query", p.type, (p.examples or [""])[0], p.kind == "required")
-            for p in ep.query_params
-            if not p.sensitive
-        ]
-        body = _json_body(self.samples.get(ep.key, []))
-        for key, value in (body or {}).items():
-            if is_sensitive_name(key):
-                continue
-            kind = "list" if isinstance(value, list) else type(value).__name__
-            example = json.dumps(value) if isinstance(value, list | dict) else str(value)
-            inputs.append(Input(key, "body", kind, example, False))
-        return inputs
 
     def _guess_pagination(self, ep: Endpoint) -> dict[str, Any] | None:
         samples = self.samples.get(ep.key, [])
@@ -252,12 +233,53 @@ class SiteRuntime:
         return out
 
 
-def records_of(body: Any) -> list[Any]:
-    """The rows in a reply: its main list, or the reply itself as one row."""
+def is_callable(ep: Endpoint, allowed: bool) -> bool:
+    """Ghost API calls an endpoint only if it reads data: by its URL, or because the user
+    checked it (`allowed`), and only if it worked outside the browser."""
+    if allowed:
+        return True
+    probe = RawRequest(ep.method, f"https://{ep.host}{ep.path_template}", {}, None)
+    return ep.replayable is not False and is_replayable(probe)
+
+
+def inputs_for(ep: Endpoint, samples: list[CapturedRequest]) -> list[Input]:
+    """What a caller can set: path and query parameters, and top-level JSON body fields."""
+    inputs = [Input(p.name, "path", p.type, (p.examples or [""])[0], True) for p in ep.path_params]
+    inputs += [
+        Input(p.name, "query", p.type, (p.examples or [""])[0], p.kind == "required")
+        for p in ep.query_params
+        if not p.sensitive
+    ]
+    body = _json_body(samples)
+    for key, value in (body or {}).items():
+        if is_sensitive_name(key):
+            continue
+        kind = "list" if isinstance(value, list) else type(value).__name__
+        example = json.dumps(value) if isinstance(value, list | dict) else str(value)
+        inputs.append(Input(key, "body", kind, example, False))
+    return inputs
+
+
+_WRAPPERS = ("data", "result", "item", "record", "payload")
+
+
+def records_of(body: Any, single: bool = False) -> list[Any]:
+    """The rows in a reply: its main list, or the reply itself as one row.
+
+    `single`: the endpoint returns one thing (its path ends in an ID, like
+    /venue/details/{id}), so lists inside it (reviews, photos) are not the rows."""
+    if single and isinstance(body, dict):
+        inner = next((body[k] for k in _WRAPPERS if isinstance(body.get(k), dict)), None)
+        return [inner if inner is not None else body]
     items = find_items(body)
     if items is not None:
         return items
     return [body] if isinstance(body, dict) else []
+
+
+def is_single(op: Operation) -> bool:
+    """One record per reply: /books/{id}, not /books or /books/{id}/reviews."""
+    return op.pagination is None and op.endpoint.path_template.rstrip("/").endswith("}")
 
 
 def flatten(record: Any, prefix: str = "") -> dict[str, Any]:

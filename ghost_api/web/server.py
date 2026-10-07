@@ -45,6 +45,7 @@ from ghost_api import __version__
 from ghost_api.config import SUPPORTED_LANGUAGES
 from ghost_api.errors import friendly_error
 from ghost_api.events import EventBus, Notice
+from ghost_api.export import tabular
 from ghost_api.export.site_data import SAFE_NAME, endpoint_details, run_dict, site_files
 from ghost_api.generator import NothingToGenerate, generate_client
 from ghost_api.generator.python_gen import GenerationError
@@ -93,6 +94,19 @@ class StartRun(BaseModel):
 class TryCall(BaseModel):
     endpoint: str  # Endpoint.key
     params: dict[str, str] = Field(default_factory=dict)
+
+
+class FetchCall(TryCall):
+    pages: int = Field(5, ge=1, le=50)
+    format: str = "csv"
+
+
+class AllowCall(BaseModel):
+    endpoint: str  # Endpoint.key
+    allowed: bool
+
+
+MAX_FETCH_ROWS = 5000
 
 
 class Regenerate(BaseModel):
@@ -453,6 +467,60 @@ def create_app(
             "body": text[:MAX_TRY_BODY],
             "truncated": len(text) > MAX_TRY_BODY,
         }
+
+    @app.post("/api/sites/{domain}/fetch")
+    def fetch_data(domain: str, call: FetchCall) -> Response:
+        """All pages of an endpoint's data as a CSV / Excel / JSON download."""
+        domain = _site_name(domain)
+        if call.format not in tabular.FORMATS:
+            raise HTTPException(400, f"Unsupported format: {call.format}")
+        try:
+            with store() as s:
+                runtime = SiteRuntime(s, domain)
+            with runtime:
+                op = next(
+                    (o for o in runtime.operations() if o.endpoint.key == call.endpoint), None
+                )
+                if op is None:
+                    raise HTTPException(409, "Ghost API doesn't call this endpoint by itself.")
+                records: list[Any] = []
+                for page in runtime.iterate(op, call.params, call.pages, MAX_FETCH_ROWS):
+                    if not page.result.ok:
+                        if not records:
+                            detail = page.result.error or f"HTTP {page.result.status}"
+                            raise HTTPException(502, f"The site answered: {detail}")
+                        break
+                    records += page.records
+        except OperationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ReplayRefused as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not records:
+            raise HTTPException(404, "No rows came back. Try other inputs.")
+        name = f"{to_url_id(domain).replace('~', '-')}-{op.name}.{call.format}"
+        return Response(
+            tabular.to_bytes(records, call.format),
+            media_type=tabular.MEDIA_TYPES[call.format],
+            headers={
+                "Content-Disposition": f'attachment; filename="{name}"',
+                "X-Ghost-Rows": str(len(records)),
+            },
+        )
+
+    @app.post("/api/sites/{domain}/allow")
+    def allow_endpoint(domain: str, call: AllowCall) -> dict[str, bool]:
+        """The user checked this endpoint only reads (e.g. a POST search): allow calling it."""
+        domain = _site_name(domain)
+        with store() as s:
+            run_id = s.latest_endpoint_run(domain)
+            keys = {e.key for e in s.load_endpoints(domain, run_id)} if run_id else set()
+            if call.endpoint not in keys:
+                raise HTTPException(404, "Unknown endpoint")
+            if call.allowed:
+                s.allow_endpoints(domain, [call.endpoint])
+            else:
+                s.disallow_endpoint(domain, call.endpoint)
+        return {"allowed": call.allowed}
 
     @app.post("/api/doctor")
     async def doctor() -> list[dict[str, Any]]:

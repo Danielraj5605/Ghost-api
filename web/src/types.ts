@@ -59,7 +59,20 @@ export interface EndpointDetail extends EndpointSummary {
   request_schema: JsonSchema | null;
   response_schema: JsonSchema | null;
   example_urls: string[];
+  callable?: boolean; // Ghost API may call it (reads data, or the user allowed it)
+  allowed?: boolean; // the user checked it only reads (a POST search)
+  inputs?: EndpointInput[];
 }
+
+export interface EndpointInput {
+  name: string;
+  location: "path" | "query" | "body";
+  type: string;
+  example: string;
+  required: boolean;
+}
+
+export type DataFormat = "csv" | "xlsx" | "json";
 
 /** Personal data an endpoint returned; Ghost API hid the values (capture/personal.py). */
 export interface Exposure {

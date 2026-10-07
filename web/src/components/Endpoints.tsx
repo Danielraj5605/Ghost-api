@@ -260,7 +260,7 @@ export function EndpointDetailPanel({
 
       {tryIt && (
         <section>
-          <h4 className="mb-2 text-sm font-semibold">Try it</h4>
+          <h4 className="mb-2 text-sm font-semibold">Use this endpoint</h4>
           {tryIt}
         </section>
       )}

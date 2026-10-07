@@ -73,6 +73,10 @@ def test_records_and_flatten() -> None:
     assert records_of({"total": 2, "items": [{"a": 1}, {"a": 2}]}) == [{"a": 1}, {"a": 2}]
     assert records_of({"id": 7, "name": "x"}) == [{"id": 7, "name": "x"}]  # one record
     assert records_of("text") == []
+    # A detail endpoint's lists (reviews) are part of the one record, not the rows.
+    detail = {"status": "ok", "data": {"id": 1, "name": "V", "reviews": [{"r": 5}, {"r": 4}]}}
+    assert records_of(detail) == [{"r": 5}, {"r": 4}]
+    assert records_of(detail, single=True) == [detail["data"]]
     row = flatten({"venue": {"name": "X", "loc": {"lat": 1}}, "tags": ["a", "b"],
                    "courts": [{"n": 1}]})  # fmt: skip
     assert row == {"venue.name": "X", "venue.loc.lat": 1, "tags": "a; b",

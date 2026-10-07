@@ -1,6 +1,7 @@
 import type {
   AppState,
   ClientEvent,
+  DataFormat,
   ProviderCheck,
   SiteDetail,
   SiteSummary,
@@ -72,6 +73,41 @@ export const api = {
   tryEndpoint: (domain: string, endpoint: string, params: Record<string, string>) =>
     post<TryResult>(`/api/sites/${siteId(domain)}/try`, { endpoint, params }),
   doctor: () => post<ProviderCheck[]>("/api/doctor", {}),
+  allow: (domain: string, endpoint: string, allowed: boolean) =>
+    post<{ allowed: boolean }>(`/api/sites/${siteId(domain)}/allow`, { endpoint, allowed }),
+  /** All pages as a file; resolves when the browser has been handed the download. */
+  fetchData: async (
+    domain: string,
+    endpoint: string,
+    params: Record<string, string>,
+    pages: number,
+    format: DataFormat,
+  ): Promise<{ rows: number; filename: string }> => {
+    const response = await fetch(`/api/sites/${siteId(domain)}/fetch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Ghost-Token": token() },
+      body: JSON.stringify({ endpoint, params, pages, format }),
+    });
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body.detail === "string") message = body.detail;
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(response.status, message);
+    }
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `data.${format}`;
+    const url = URL.createObjectURL(await response.blob());
+    const link = Object.assign(document.createElement("a"), { href: url, download: filename });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return { rows: Number(response.headers.get("x-ghost-rows") ?? 0), filename };
+  },
   eventsUrl: (id: number) => withToken(`/api/runs/${id}/events`),
   screenUrl: (id: number, name: string) => withToken(`/api/runs/${id}/screens/${name}`),
   zipUrl: (domain: string) => withToken(`/api/sites/${siteId(domain)}/download.zip`),

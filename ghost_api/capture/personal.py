@@ -42,16 +42,22 @@ _UPI_PROVIDERS = {
     "waicici", "abfspay", "ikwik", "idfcbank", "indus", "barodampay", "fbl", "federal",
 }  # fmt: skip
 _DOB_NAMES = ("dob", "date_of_birth", "dateofbirth", "birth_date", "birthdate", "birthday")
+# A person's name, when the field says so (names can't be told from their value alone).
+_HOLDER_NAMES = (
+    "accountname", "account_name", "accountholder", "account_holder", "holder_name",
+    "holdername", "beneficiary", "owner_name", "ownername", "card_holder", "cardholder",
+)  # fmt: skip
 
 SEVERITY: dict[str, Severity] = {
     "pan": "high", "gstin": "high", "aadhaar": "high", "bank_account": "high",
     "card": "high", "upi": "high", "email": "medium", "phone": "medium",
-    "date_of_birth": "medium",
+    "date_of_birth": "medium", "account_holder": "medium",
 }  # fmt: skip
 LABEL = {
     "pan": "PAN number", "gstin": "GST number", "aadhaar": "Aadhaar number",
     "bank_account": "bank account number", "card": "card number", "upi": "UPI ID",
     "email": "email address", "phone": "phone number", "date_of_birth": "date of birth",
+    "account_holder": "account holder's name",
 }  # fmt: skip
 
 
@@ -87,6 +93,12 @@ def classify(key: str, value: Any) -> str | None:
             return "upi"
         if _INTL_PHONE_RE.match(text) and _digit_count(text) >= 10:
             return "phone"
+    if (
+        isinstance(value, str)
+        and any(n in name.replace("-", "_") for n in _HOLDER_NAMES)
+        and re.search(r"[A-Za-z]{2}", text)
+    ):
+        return "account_holder"
     if any(n in name for n in _DOB_NAMES) and isinstance(value, str) and re.search(r"\d", text):
         return "date_of_birth"
     if any(n in name for n in _AADHAAR_NAMES) and _AADHAAR_RE.match(text):

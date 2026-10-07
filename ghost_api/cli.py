@@ -1,5 +1,5 @@
 """Command-line entry point: `ghost-api [run | refresh | generate | verify | report | inspect |
-doctor | ui]`. With no command, asks for a URL and goal interactively.
+fetch | doctor | ui]`. With no command, asks for a URL and goal interactively.
 
 The workflow itself lives in `ghost_api/pipeline.py` and emits events; this module parses
 options and renders those events with `ghost_api/ui/terminal.py`.
@@ -22,8 +22,9 @@ from rich.text import Text
 from ghost_api import __version__
 from ghost_api.config import SUPPORTED_LANGUAGES, Settings, default_db_path, load_env
 from ghost_api.events import EventBus, Notice
-from ghost_api.export import write_exports
+from ghost_api.export import tabular, write_exports
 from ghost_api.export.site_data import endpoint_summary
+from ghost_api.export.tabular import FORMATS
 from ghost_api.generator import NothingToGenerate, generate_client
 from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.doctor import check_providers
@@ -42,6 +43,8 @@ from ghost_api.pipeline import (
     robots_policy,
     round_event,
 )
+from ghost_api.probe.replay import ReplayRefused
+from ghost_api.runtime import OperationError, SiteRuntime
 from ghost_api.site import SiteAmbiguous, resolve_site, site_host
 from ghost_api.ui.terminal import ACCENT, TerminalRenderer, endpoint_table, print_client
 from ghost_api.verify.verifier import Verifier
@@ -499,6 +502,102 @@ def report(
     if exports.html:
         console.print(f"Report (shareable page): {exports.html}")
     console.print(f"OpenAPI: {exports.openapi}")
+
+
+def _params(pairs: list[str]) -> dict[str, str]:
+    """['area=velachery', 'sport=football'] -> {'area': 'velachery', 'sport': 'football'}."""
+    params = {}
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        if not sep or not name.strip():
+            console.print(f"Inputs look like name=value, not {pair!r}.")
+            raise typer.Exit(code=2)
+        params[name.strip()] = value
+    return params
+
+
+def _operations_table(rt: SiteRuntime) -> Table:
+    table = Table(title=f"What you can fetch from {rt.site}", title_justify="left")
+    for col in ("Operation", "What it returns", "Inputs (example)", "Pages"):
+        table.add_column(col, overflow="fold")
+    for op in rt.operations():
+        inputs = ", ".join(f"{i.name}={i.example}" if i.example else i.name for i in op.inputs)
+        pages = op.pagination["style"] if op.pagination else "-"
+        table.add_row(f"[bold {ACCENT}]{op.name}[/]", op.summary, inputs or "-", pages)
+    return table
+
+
+@app.command()
+def fetch(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    operation: Annotated[
+        str | None, typer.Argument(help="What to fetch; leave out to list the choices.")
+    ] = None,
+    inputs: Annotated[
+        list[str] | None, typer.Argument(help="Inputs as name=value, e.g. area=velachery.")
+    ] = None,
+    fmt: Annotated[str, typer.Option("--format", help="csv, xlsx or json.")] = "csv",
+    pages: Annotated[int, typer.Option(help="Maximum pages to follow.")] = 5,
+    max_rows: Annotated[int, typer.Option(help="Stop after this many rows.")] = 1000,
+    save_to: Annotated[
+        Path | None, typer.Option("--save-to", help="File to write (default: in output/).")
+    ] = None,
+    include_sensitive: Annotated[
+        bool,
+        typer.Option(
+            "--include-sensitive",
+            help="Keep personal data (emails, phones, IDs). Only for auditing your own site.",
+        ),
+    ] = False,
+    out: Annotated[Path, typer.Option(help="Folder for generated files.")] = Path("output"),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Download a site's data as CSV, Excel or JSON, following all pages. No code needed."""
+    if fmt not in FORMATS:
+        console.print(f"--format must be one of: {', '.join(FORMATS)}")
+        raise typer.Exit(code=2)
+    path = _need_db(db)
+    with Store(path) as store:
+        domain = _site(store, domain)
+        try:
+            rt = SiteRuntime(store, domain, include_sensitive=include_sensitive)
+        except OperationError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    with rt:
+        if operation is None:
+            console.print(_operations_table(rt))
+            ops = rt.operations()
+            if ops:
+                console.print(f"[dim]Example: ghost-api fetch {domain} {ops[0].name}[/]")
+            else:
+                console.print("Nothing here can be fetched without the browser.")
+            return
+        try:
+            op = rt.operation(operation)
+            records: list[object] = []
+            hidden = 0
+            for page in rt.iterate(op, _params(inputs or []), pages, max_rows):
+                if not page.result.ok:
+                    detail = page.result.error or f"HTTP {page.result.status}"
+                    console.print(f"[yellow]Page {page.number} failed:[/] {detail}")
+                    break
+                records += page.records
+                hidden += sum(int(h.get("count", 1)) for h in page.result.hidden)
+                console.print(f"  Page {page.number}: {len(page.records)} rows")
+        except (OperationError, ReplayRefused) as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    if not records:
+        console.print("No rows came back. Try other inputs (see `ghost-api fetch SITE`).")
+        raise typer.Exit(code=1)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    target = save_to or out / domain / "data" / f"{op.name}-{stamp}.{fmt}"
+    tabular.write(records, target, fmt)
+    console.print(
+        f"[bold green]Saved {len(records)} rows[/] to {target}"
+        + (f"  [dim]({hidden} personal values hidden)[/]" if hidden else "")
+    )
 
 
 @app.command()

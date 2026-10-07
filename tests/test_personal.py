@@ -54,6 +54,8 @@ def venue(i: int) -> dict[str, object]:
         ("aadhaar", "2345 6789 0123", "aadhaar"),
         ("account_number", "123456789012", "bank_account"),
         ("dob", "1990-01-31", "date_of_birth"),
+        ("accountname", "A Person", "account_holder"),
+        ("beneficiary_name", "A Person", "account_holder"),
         # Not personal: IDs, prices, pincodes, versions, URLs, plain numbers.
         ("id", PHONE, None),
         ("pincode", "600042", None),

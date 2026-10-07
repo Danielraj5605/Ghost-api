@@ -7,15 +7,18 @@ components that show them work in both places (see web/src/types.ts).
 from __future__ import annotations
 
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from ghost_api import __version__
+from ghost_api.analysis.analyzer import endpoint_keys
 from ghost_api.analysis.exposure import exposures
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import field_paths, top_level_fields
 from ghost_api.export.confidence import confidence
 from ghost_api.memory.store import RunRow, Store
+from ghost_api.runtime import inputs_for, is_callable
 from ghost_api.site import site_host
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -88,8 +91,13 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
         return []
     details = []
     endpoints = store.load_endpoints(domain, run_id)
-    found = exposures(endpoints, store.requests_for_domain(domain))
+    requests = store.requests_for_domain(domain)
+    found = exposures(endpoints, requests)
     exposed = {e.endpoint_key: e.to_dict() for e in found}
+    samples: dict[str, list[Any]] = {}
+    for key, req in zip(endpoint_keys(requests), requests, strict=False):
+        samples.setdefault(key, []).append(req)
+    allowed = store.allowed_endpoints(domain)
     for ep in endpoints:
         summary = endpoint_summary(ep, domain)
         summary.update(
@@ -97,6 +105,10 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
             response_schema=ep.response_schema,
             example_urls=ep.example_urls,
             exposure=exposed.get(ep.key),
+            # For Try it / Get data: can Ghost API call it, and with which inputs.
+            callable=is_callable(ep, ep.key in allowed),
+            allowed=ep.key in allowed,
+            inputs=[asdict(i) for i in inputs_for(ep, samples.get(ep.key, []))],
         )
         details.append(summary)
     return details

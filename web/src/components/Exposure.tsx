@@ -13,6 +13,7 @@ const KIND_LABEL: Record<string, string> = {
   email: "email address",
   phone: "phone number",
   date_of_birth: "date of birth",
+  account_holder: "account holder's name",
 };
 
 export const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
