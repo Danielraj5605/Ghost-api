@@ -23,6 +23,7 @@ from ghost_api import __version__
 from ghost_api.config import SUPPORTED_LANGUAGES, Settings, default_db_path, load_env
 from ghost_api.events import EventBus, Notice
 from ghost_api.export import write_exports
+from ghost_api.export.site_data import endpoint_summary
 from ghost_api.generator import NothingToGenerate, generate_client
 from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.doctor import check_providers
@@ -34,7 +35,6 @@ from ghost_api.net import RateLimiter
 from ghost_api.pipeline import (
     RunOptions,
     client_event,
-    endpoint_summary,
     explore_site,
     finish,
     open_session,
@@ -448,7 +448,7 @@ def report(
     out: Annotated[Path, typer.Option(help="Folder for generated files.")] = Path("output"),
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
-    """Write report.md and openapi.yaml for a site from what is stored."""
+    """Write report.md, report.html and openapi.yaml for a site from what is stored."""
     path = _need_db(db)
     with Store(path) as store:
         run_row = store.get_run(run_id) if run_id else store.latest_run(domain)
@@ -457,6 +457,8 @@ def report(
             raise typer.Exit(code=1)
         exports = write_exports(store, domain, run_row.id, out)
     console.print(f"Report:  {exports.report}")
+    if exports.html:
+        console.print(f"Report (shareable page): {exports.html}")
     console.print(f"OpenAPI: {exports.openapi}")
 
 

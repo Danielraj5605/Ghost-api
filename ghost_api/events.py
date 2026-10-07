@@ -155,6 +155,7 @@ class RunFinished(Event):
     endpoints: int
     report: str = ""
     openapi: str = ""
+    report_html: str = ""
     lessons_learned: int = 0
     filtered: dict[str, int] = field(default_factory=dict)
     generation_error: str = ""

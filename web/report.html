@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="generator" content="Ghost API" />
+    <title>Ghost API report</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%237c3aed' d='M32 4C19.3 4 10 13.8 10 26.5V56c0 2.2 2.5 3.4 4.2 2l4.3-3.5a2.6 2.6 0 0 1 3.3 0l4.6 3.8a2.6 2.6 0 0 0 3.3 0l4.6-3.8a2.6 2.6 0 0 1 3.3 0l4.6 3.8a2.6 2.6 0 0 0 3.3 0l4.3-3.5c1.7-1.4 4.2-.2 4.2 2V26.5C54 13.8 44.7 4 32 4Z'/%3E%3C/svg%3E"
+    />
+    <script>
+      // Apply the saved theme before the first paint, so the page doesn't flash.
+      (function () {
+        var saved = null;
+        try { saved = localStorage.getItem("ghost-theme"); } catch (e) {}
+        var dark = saved ? saved === "dark" : !window.matchMedia("(prefers-color-scheme: light)").matches;
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- ghost_api/export/html.py replaces the placeholder with the site's data (JSON). -->
+    <script id="ghost-report" type="application/json">__GHOST_REPORT__</script>
+    <div id="root"></div>
+    <script type="module" src="/src/report/main.tsx"></script>
+  </body>
+</html>

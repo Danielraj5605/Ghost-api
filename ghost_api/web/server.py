@@ -45,6 +45,7 @@ from ghost_api.analysis.analyzer import endpoint_keys
 from ghost_api.config import SUPPORTED_LANGUAGES
 from ghost_api.errors import friendly_error
 from ghost_api.events import EventBus, Notice
+from ghost_api.export.site_data import SAFE_NAME, endpoint_details, run_dict, site_files
 from ghost_api.generator import NothingToGenerate, generate_client
 from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.doctor import check_providers
@@ -56,7 +57,6 @@ from ghost_api.net import RateLimiter
 from ghost_api.pipeline import (
     RunOptions,
     client_event,
-    endpoint_summary,
     explore_site,
     finish,
     open_session,
@@ -67,7 +67,6 @@ from ghost_api.probe.replay import Replayer, ReplayRefused, apply_params, is_rep
 
 STATIC = Path(__file__).parent / "static"
 TOKEN_PLACEHOLDER = "__GHOST_TOKEN__"
-SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 SCREEN_NAME = re.compile(r"^[A-Za-z0-9_-]+\.jpg$")
 MAX_TRY_BODY = 200_000
 
@@ -212,35 +211,6 @@ class RunManager:
 # --- reading what is stored -----------------------------------------------------------------
 
 
-def _run_dict(r: RunRow) -> dict[str, Any]:
-    return {
-        "id": r.id,
-        "domain": r.domain,
-        "start_url": r.start_url,
-        "goal": r.goal,
-        "status": r.status,
-        "started_at": r.started_at,
-        "finished_at": r.finished_at,
-        "requests": r.request_count,
-        "llm_calls": r.llm_calls,
-        "tokens": r.tokens,
-    }
-
-
-def _file_kind(name: str) -> str:
-    if name.startswith("test_") or name.endswith(".test.ts"):
-        return "tests"
-    if name.endswith(("_client.py", "_client.ts")):
-        return "client"
-    if name == "models.py":
-        return "models"
-    if name.endswith((".yaml", ".yml")):
-        return "openapi"
-    if name.startswith("report."):
-        return "report"
-    return "other"
-
-
 def _site_folder(out: Path, domain: str) -> Path:
     if not SAFE_NAME.match(domain) or domain.startswith("."):
         raise HTTPException(400, "Invalid site name")
@@ -248,30 +218,7 @@ def _site_folder(out: Path, domain: str) -> Path:
 
 
 def _site_files(out: Path, domain: str) -> list[dict[str, Any]]:
-    folder = _site_folder(out, domain)
-    if not folder.is_dir():
-        return []
-    return [
-        {"name": f.name, "size": f.stat().st_size, "kind": _file_kind(f.name)}
-        for f in sorted(folder.iterdir())
-        if f.is_file()
-    ]
-
-
-def _endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
-    run_id = store.latest_endpoint_run(domain)
-    if run_id is None:
-        return []
-    details = []
-    for ep in store.load_endpoints(domain, run_id):
-        summary = endpoint_summary(ep, domain)
-        summary.update(
-            request_schema=ep.request_schema,
-            response_schema=ep.response_schema,
-            example_urls=ep.example_urls,
-        )
-        details.append(summary)
-    return details
+    return site_files(_site_folder(out, domain))
 
 
 # --- the app --------------------------------------------------------------------------------
@@ -329,7 +276,7 @@ def create_app(
                 by_domain.setdefault(r.domain, []).append(r)
             result = []
             for domain, domain_runs in by_domain.items():
-                endpoints = _endpoint_details(s, domain)
+                endpoints = endpoint_details(s, domain)
                 counts = {
                     k: sum(e["status"] == k for e in endpoints)
                     for k in ("verified", "unverified", "failed", "discovered")
@@ -337,7 +284,7 @@ def create_app(
                 result.append(
                     {
                         "domain": domain,
-                        "latest": _run_dict(domain_runs[0]),
+                        "latest": run_dict(domain_runs[0]),
                         "runs": len(domain_runs),
                         "endpoints": len(endpoints),
                         "counts": counts,
@@ -356,8 +303,8 @@ def create_app(
                 raise HTTPException(404, f"Nothing stored for {domain}")
             return {
                 "domain": domain,
-                "runs": [_run_dict(r) for r in runs],
-                "endpoints": _endpoint_details(s, domain),
+                "runs": [run_dict(r) for r in runs],
+                "endpoints": endpoint_details(s, domain),
                 "lessons": s.lessons_for(domain, limit=20),
                 "files": _site_files(out, domain),
             }
@@ -369,7 +316,7 @@ def create_app(
             if r is None:
                 raise HTTPException(404, "Run not found")
             return {
-                **_run_dict(r),
+                **run_dict(r),
                 "active": manager.active_run == run_id,
                 "steps": s.steps_for_run(run_id),
                 "hypotheses": s.hypotheses_for_run(run_id),

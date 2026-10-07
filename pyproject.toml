@@ -36,7 +36,7 @@ ghost-api = "ghost_api.cli:app"
 include = ["ghost_api*"]
 
 [tool.setuptools.package-data]
-ghost_api = ["generator/templates/*.j2", "web/static/*", "web/static/assets/*"]
+ghost_api = ["generator/templates/*.j2", "web/static/*", "web/static/assets/*", "export/viewer/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -16,13 +16,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlsplit
 
 from ghost_api.agent.orchestrator import AgentResult, Explorer, StepRecord
 from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.models import Endpoint
-from ghost_api.analysis.schema import field_paths, top_level_fields
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
@@ -46,7 +44,7 @@ from ghost_api.events import (
     VerifyRound,
 )
 from ghost_api.export import write_exports
-from ghost_api.export.confidence import confidence
+from ghost_api.export.site_data import display_label, endpoint_summary
 from ghost_api.generator import GenerationResult, NothingToGenerate, generate_from, plan_for
 from ghost_api.generator.python_gen import GenerationError
 from ghost_api.generator.ts_gen import camel, ts_type
@@ -470,6 +468,7 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
             endpoints=len(endpoints),
             report=str(exports.report),
             openapi=str(exports.openapi),
+            report_html=str(exports.html or ""),
             lessons_learned=learned,
             filtered=dict(s.recorder.dropped),
             generation_error=generation_error,
@@ -511,56 +510,6 @@ def apply_probe(ep: Endpoint, report: ProbeReport) -> None:
 
 
 # --- event payloads --------------------------------------------------------------------------
-
-
-def display_label(ep: Endpoint, host: str) -> str:
-    return ep.label if ep.host == host else f"{ep.method} {ep.host}{ep.path_template}"
-
-
-def endpoint_summary(ep: Endpoint, host: str) -> dict[str, Any]:
-    """Everything an interface needs to show an endpoint, as plain JSON."""
-    params = [
-        {
-            "name": p.name,
-            "type": p.type,
-            "location": "path",
-            "kind": "required",
-            "examples": p.examples[:3],
-            "sensitive": False,
-        }
-        for p in ep.path_params
-    ] + [
-        {
-            "name": p.name,
-            "type": p.type,
-            "location": "query",
-            "kind": p.kind,
-            "examples": p.examples[:3],
-            "sensitive": p.sensitive,
-        }
-        for p in ep.query_params
-    ]
-    return {
-        "key": ep.key,
-        "label": display_label(ep, host),
-        "method": ep.method,
-        "host": ep.host,
-        "path": ep.path_template,
-        "third_party": ep.host != host,
-        "params": params,
-        "samples": ep.sample_count,
-        "statuses": ep.statuses,
-        "status": ep.status,
-        "status_note": ep.status_note,
-        "replayable": ep.replayable,
-        "auth_type": ep.auth_type,
-        "required_headers": ep.required_headers,
-        "pagination": ep.pagination,
-        "confidence": confidence(ep),
-        "fields": top_level_fields(ep.response_schema),
-        "field_paths": field_paths(ep.response_schema, limit=40),
-        "has_request_body": ep.request_schema is not None,
-    }
 
 
 def round_event(r: Round) -> VerifyRound:

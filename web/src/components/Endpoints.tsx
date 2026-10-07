@@ -1,16 +1,12 @@
-import { useMutation } from "@tanstack/react-query";
-import { ArrowRightLeft, Layers, Lock, Play, Search, X } from "lucide-react";
+import { ArrowRightLeft, Layers, Lock, Search, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { api } from "../api";
-import type { EndpointDetail, EndpointSummary, TryResult } from "../types";
-import { CodeBlock } from "./CodeBlock";
+import type { EndpointDetail, EndpointSummary } from "../types";
 import { SchemaTree } from "./SchemaTree";
 import {
   Button,
   ConfidenceBadge,
   cx,
   EmptyState,
-  ErrorBox,
   MethodBadge,
   Pill,
   plural,
@@ -152,94 +148,15 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function TryIt({ domain, endpoint }: { domain: string; endpoint: EndpointDetail }) {
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(endpoint.params.map((p) => [p.name, p.sensitive ? "" : (p.examples[0] ?? "")])),
-  );
-  const run = useMutation<TryResult, Error>({
-    mutationFn: () => {
-      const params = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ""));
-      return api.tryEndpoint(domain, endpoint.key, params);
-    },
-  });
-
-  if (endpoint.replayable === false) {
-    return (
-      <p className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
-        Try it is off for this endpoint: it looks like it changes data on the site, so Ghost API
-        never calls it on its own.
-      </p>
-    );
-  }
-
-  const pretty = (() => {
-    if (!run.data) return "";
-    try {
-      return JSON.stringify(JSON.parse(run.data.body), null, 2);
-    } catch {
-      return run.data.body;
-    }
-  })();
-
-  return (
-    <div className="space-y-3">
-      {endpoint.params.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {endpoint.params.map((p) => (
-            <label key={p.name} className="text-sm">
-              <span className="mb-1 flex items-center gap-1.5">
-                <span className="font-mono">{p.name}</span>
-                <span className="text-xs text-muted">
-                  {p.location} · {p.type}
-                </span>
-              </span>
-              <input
-                value={values[p.name] ?? ""}
-                onChange={(ev) => setValues({ ...values, [p.name]: ev.target.value })}
-                placeholder={p.sensitive ? "hidden (sensitive)" : (p.examples[0] ?? "")}
-                className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-sm outline-none focus:border-accent"
-              />
-            </label>
-          ))}
-        </div>
-      )}
-      <Button variant="primary" onClick={() => run.mutate()} disabled={run.isPending}>
-        <Play className="size-4" />
-        {run.isPending ? "Calling…" : "Send request"}
-      </Button>
-      {run.error && <ErrorBox error={run.error} />}
-      {run.data && (
-        <div className="space-y-2" aria-live="polite">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Pill className={run.data.ok ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}>
-              {run.data.status || "no response"}
-            </Pill>
-            <span className="text-muted">{run.data.ms} ms</span>
-            <span className="min-w-0 truncate font-mono text-xs text-muted">{run.data.url}</span>
-          </div>
-          {run.data.error && <ErrorBox error={run.data.error} />}
-          {pretty && (
-            <CodeBlock
-              code={pretty}
-              language="json"
-              title={run.data.truncated ? "response (cut short)" : "response"}
-              maxHeight="24rem"
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function EndpointDetailPanel({
-  domain,
   endpoint,
   onClose,
+  tryIt,
 }: {
-  domain: string;
   endpoint: EndpointDetail;
   onClose?: () => void;
+  /** The "Try it" form (dashboard only; the shared report can't call endpoints). */
+  tryIt?: ReactNode;
 }) {
   const e = endpoint;
   return (
@@ -337,10 +254,12 @@ export function EndpointDetailPanel({
         </section>
       )}
 
-      <section>
-        <h4 className="mb-2 text-sm font-semibold">Try it</h4>
-        <TryIt key={e.key} domain={domain} endpoint={e} />
-      </section>
+      {tryIt && (
+        <section>
+          <h4 className="mb-2 text-sm font-semibold">Try it</h4>
+          {tryIt}
+        </section>
+      )}
     </article>
   );
 }

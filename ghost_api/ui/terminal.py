@@ -367,7 +367,9 @@ class TerminalRenderer:
             body.append(Text("Use it  ", style="dim") + Text(_use_it(c), style="bold"))
         elif e.generation_error:
             body += [Text(""), Text(f"No client generated: {e.generation_error}", style="yellow")]
-        body.append(Text.assemble(("Report  ", "dim"), e.report))
+        body.append(Text.assemble(("Report  ", "dim"), e.report_html or e.report))
+        if e.report_html:
+            body.append(Text("        one file: open it in a browser or share it", style="dim"))
         if e.lessons_learned:
             body.append(
                 Text(f"Remembered {e.lessons_learned} lesson(s) for next time", style="dim")
@@ -410,7 +412,7 @@ class TerminalRenderer:
             self.console.print(
                 f"[dim]Remembered {e.lessons_learned} new lesson(s) for next time[/]"
             )
-        self.console.print(f"[dim]Report: {e.report}   OpenAPI: {e.openapi}[/]")
+        self.console.print(f"[dim]Report: {e.report_html or e.report}   OpenAPI: {e.openapi}[/]")
         if self.usage is not None:
             u = self.usage
             providers = ", ".join(f"{k}: {v}" for k, v in u.by_provider.items()) or "-"

@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p . && vite build",
+    "build": "tsc -p . && vite build && vite build -c vite.report.config.ts",
     "typecheck": "tsc -p .",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:report": "vite build -c vite.report.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",

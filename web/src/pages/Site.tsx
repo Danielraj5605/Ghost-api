@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import { CodeBlock, languageFor } from "../components/CodeBlock";
 import { EndpointDetailPanel, EndpointList } from "../components/Endpoints";
+import { TryIt } from "../components/TryIt";
 import {
   bytes,
   Button,
@@ -62,7 +63,10 @@ function EndpointsTab({ site }: { site: SiteDetail }) {
       <div ref={detailRef} className="scroll-mt-20">
         <Card className="p-4 sm:p-5">
           {endpoint ? (
-            <EndpointDetailPanel domain={site.domain} endpoint={endpoint} />
+            <EndpointDetailPanel
+              endpoint={endpoint}
+              tryIt={<TryIt key={endpoint.key} domain={site.domain} endpoint={endpoint} />}
+            />
           ) : (
             <EmptyState title="Pick an endpoint" />
           )}
