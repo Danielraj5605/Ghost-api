@@ -52,7 +52,7 @@ function NewRunForm({ hasLlm, running }: { hasLlm: boolean; running: number | nu
     "flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5 transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
 
   return (
-    <form onSubmit={submit} className="mx-auto w-full max-w-2xl space-y-3">
+    <form onSubmit={submit} className="mx-auto w-full max-w-2xl space-y-3 text-left">
       <label className={field}>
         <Globe className="size-5 shrink-0 text-muted" aria-hidden />
         <span className="sr-only">Website URL</span>

@@ -122,6 +122,8 @@ def test_snake(raw: str, expected: str) -> None:
 def test_pascal_and_default_names() -> None:
     assert pascal("quotes_response") == "QuotesResponse"
     assert default_client_name("www.quotes.toscrape.com") == "QuotesToscrapeClient"
+    assert default_client_name("127.0.0.1") == "LocalClient"
+    assert default_client_name("localhost") == "LocalClient"
     eps = {e.path_template: e for e in endpoints()}
     assert default_method_name(eps["/api/items"]) == "get_items"
     assert default_method_name(eps["/api/items/{id}"]) == "get_item"

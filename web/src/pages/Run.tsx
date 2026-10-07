@@ -1,6 +1,6 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Clock, Coins, Cpu, Network, Square } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { EndpointList } from "../components/Endpoints";
@@ -59,9 +59,19 @@ export function Run() {
   const { state, status } = useRunStream(Number.isFinite(runId) ? runId : null);
   const [picked, setPicked] = useState<{ name: string; box: Box | null } | null>(null);
   const [tab, setTab] = useState<MobileTab>("timeline");
+  const qc = useQueryClient();
+  const ended = state.finished !== null || status === "ended";
+  useEffect(() => {
+    // The header's "live" badge and the site list change when a run ends.
+    if (ended) {
+      void qc.invalidateQueries({ queryKey: ["state"] });
+      void qc.invalidateQueries({ queryKey: ["sites"] });
+      void qc.invalidateQueries({ queryKey: ["site", state.domain] });
+    }
+  }, [ended, status, qc, state.domain]);
   const stop = useMutation({ mutationFn: () => api.stopRun(runId) });
 
-  const live = !state.finished && status !== "ended";
+  const live = !ended;
   const shown = picked ?? state.screenshot;
   const usage = state.usage;
 
@@ -115,7 +125,7 @@ export function Run() {
   );
 
   const endpoints = (
-    <Card className="flex h-[32rem] flex-col lg:h-[calc(100vh-15rem)]">
+    <Card className="flex max-h-[32rem] flex-col lg:h-[calc(100vh-15rem)] lg:max-h-none">
       <SectionTitle right={<Pill>{state.endpoints.filter((e) => !e.third_party).length}</Pill>}>Endpoints</SectionTitle>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <EndpointList endpoints={state.endpoints} compact />

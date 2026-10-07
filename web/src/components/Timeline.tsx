@@ -128,7 +128,6 @@ export function Timeline({
   onSelectShot?: (shot: { name: string; box: Box | null }) => void;
   follow?: boolean;
 }) {
-  const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
 
   // Keep the newest line in view, unless the reader scrolled up.
@@ -136,7 +135,8 @@ export function Timeline({
     const el = box.current;
     if (!follow || !el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-    if (nearBottom) end.current?.scrollIntoView({ block: "nearest" });
+    // Scroll the box itself: scrollIntoView would also scroll the page.
+    if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [items.length, follow]);
 
   return (
@@ -262,7 +262,6 @@ export function Timeline({
           }
         })}
       </ol>
-      <div ref={end} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ returns is validated, and anything unusable falls back to the deterministic name
 
 from __future__ import annotations
 
+import ipaddress
 import keyword
 import re
 
@@ -72,8 +73,19 @@ def default_model_name(endpoint: Endpoint) -> str:
     return f"{base}Response"
 
 
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 def default_client_name(domain: str) -> str:
     """'quotes.toscrape.com' -> 'QuotesToscrapeClient'; 'hn.algolia.com' -> 'HnAlgoliaClient'."""
+    host = domain.lower().split(":")[0].strip("[]")
+    if host == "localhost" or _is_ip(host):
+        return "LocalClient"  # '127.0.0.1' would otherwise give 'M1270Client'
     labels = [p for p in domain.lower().split(".") if p not in ("www", "com", "org", "net", "io")]
     return pascal("_".join(labels[:2]) or "api") + "Client"
 
