@@ -29,6 +29,11 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
   `package/python` and `package/typescript` with a README and curl examples. Python output
   passes `mypy --strict`.
 - `ghost-api mock SITE`: a local copy of a site's API from captured replies.
+- API drift: client versions (semantic versioning: breaking -> major, added -> minor),
+  recorded by runs, refreshes and `generate`, with a CHANGELOG.md in each package.
+  `ghost-api diff` (since the last version, `--since`, `--live`, `--history`, `--markdown`,
+  `--fail-on`), and a GitHub Action (`action.yml`) that refreshes a site and reports what
+  changed for a pull request.
 
 - A quality gate: ten local test sites with known answers (paging, auth headers, robots
   rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI

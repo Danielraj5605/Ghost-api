@@ -154,6 +154,12 @@ def test_init_saves_a_key_without_printing_it(
 def test_json_flag_can_be_typed_anywhere() -> None:
     assert _json_first(["inspect", "x.com", "--json"]) == ["--json", "inspect", "x.com"]
     assert _json_first(["inspect"]) == ["inspect"]
+    assert _json_first(["refresh", "x", "--plain", "--json"]) == [
+        "--json",
+        "--plain",
+        "refresh",
+        "x",
+    ]
 
 
 def test_inspect_json_is_clean_on_stdout(project: Path) -> None:

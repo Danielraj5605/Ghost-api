@@ -25,6 +25,7 @@ from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.generator import GenerationResult, generate_from
 from ghost_api.generator.naming import NamingPlan
 from ghost_api.generator.spec import ClientSpec
+from ghost_api.memory.store import Store
 from ghost_api.probe.prober import Prober
 from ghost_api.probe.replay import Replayer, ReplayRefused, is_replayable, with_overrides
 from ghost_api.verify.classify import FailureKind, classify, short_reason, validation_locations
@@ -76,7 +77,10 @@ class Verifier:
         sleep: Callable[[float], None] = time.sleep,
         test_runner: Callable[[Path, dict[str, str]], list[TestOutcome]] | None = None,
         lang: str = "python",
+        store: Store | None = None,
     ) -> None:
+        """`store`: only read, so regenerated packages carry the right client version."""
+        self.store = store
         self.domain = domain
         self.start_url = start_url
         self.endpoints = endpoints
@@ -101,7 +105,7 @@ class Verifier:
         for number in range(1, MAX_ROUNDS + 1):
             result = generate_from(
                 self.domain, self.start_url, self.endpoints, self.requests,
-                self.out_root, self.plan, self.lang,
+                self.out_root, self.plan, self.lang, store=self.store,
             )  # fmt: skip
             outcomes = self.run_tests(result.client.tests_path, self._credentials_env(result.spec))
             current = Round(number, outcomes)

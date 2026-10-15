@@ -157,6 +157,8 @@ class ClientSpec:
     models: list[ModelDef] = field(default_factory=list)
     credentials: list[CredentialSpec] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)  # endpoint labels left out, with why
+    version: str = "1.0.0"  # the client's version (drift.py), used by the packages
+    changelog: str = ""  # CHANGELOG.md for the packages
 
     @property
     def error_class(self) -> str:

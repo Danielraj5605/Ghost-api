@@ -1,0 +1,84 @@
+name: Ghost API refresh
+description: >-
+  Re-check a site's API with Ghost API, regenerate the client when it changed, and report
+  what changed (breaking or not) for a pull request.
+author: Danielraj
+branding:
+  icon: refresh-cw
+  color: purple
+
+inputs:
+  site:
+    description: The site as Ghost API stores it, e.g. quotes.toscrape.com/scroll
+    required: true
+  working-directory:
+    description: The folder with ghost-api.toml and the committed .ghost-api/ database
+    default: "."
+  lang:
+    description: Client language, python or typescript
+    default: python
+  mode:
+    description: >-
+      refresh: re-check the site (stored requests replayed first; the browser opens only if
+      needed) and regenerate the client when the API changed.
+      check: one direct request per endpoint, no browser, only reports (nothing is updated).
+    default: refresh
+  ghost-api-ref:
+    description: Ghost API version (git tag or branch) to install
+    default: main
+  python-version:
+    default: "3.13"
+    description: Python version
+
+outputs:
+  changed:
+    description: '"true" when the API (and so the client) changed'
+    value: ${{ steps.diff.outputs.changed }}
+  breaking:
+    description: Number of breaking changes
+    value: ${{ steps.diff.outputs.breaking }}
+  version:
+    description: The client version after the refresh
+    value: ${{ steps.diff.outputs.version }}
+  summary-file:
+    description: Markdown describing the changes, for a pull-request body
+    value: ${{ steps.diff.outputs.summary-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install Ghost API
+      shell: bash
+      run: |
+        python -m pip install "ghost-api-cli @ git+https://github.com/Danielraj5605/Ghost-api@${{ inputs.ghost-api-ref }}"
+        if [ "${{ inputs.mode }}" = "refresh" ]; then python -m playwright install --with-deps chromium; fi
+    - name: Check the site
+      id: diff
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        site="${{ inputs.site }}"
+        before="$(ghost-api diff "$site" --history --json | python -c 'import json,sys; v=json.load(sys.stdin)["versions"]; print(v[0]["version"] if v else "")')"
+        if [ "${{ inputs.mode }}" = "refresh" ]; then
+          if ! ghost-api refresh "$site" --lang "${{ inputs.lang }}" --plain; then
+            echo "::warning::ghost-api refresh did not finish cleanly (see the log above)"
+          fi
+          args=(--since "$before")
+          [ -z "$before" ] && args=()
+        else
+          args=(--live)
+        fi
+        ghost-api diff "$site" "${args[@]}" --json > "$RUNNER_TEMP/ghost-diff.json"
+        ghost-api diff "$site" "${args[@]}" --markdown > "$RUNNER_TEMP/ghost-diff.md"
+        changed="$(python -c 'import json,sys; print("true" if json.load(open(sys.argv[1]))["changes"] else "false")' "$RUNNER_TEMP/ghost-diff.json")"
+        {
+          echo "changed=$changed"
+          echo "breaking=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["breaking"])' "$RUNNER_TEMP/ghost-diff.json")"
+          echo "version=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$RUNNER_TEMP/ghost-diff.json")"
+          echo "summary-file=$RUNNER_TEMP/ghost-diff.md"
+        } >> "$GITHUB_OUTPUT"
+        cat "$RUNNER_TEMP/ghost-diff.md" >> "$GITHUB_STEP_SUMMARY"

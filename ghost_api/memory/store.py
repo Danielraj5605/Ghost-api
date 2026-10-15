@@ -140,6 +140,17 @@ CREATE TABLE IF NOT EXISTS allowed_endpoints (
     PRIMARY KEY (domain, endpoint_key)
 );
 
+-- Client versions: the API's public shape each time it changed (ghost_api/drift.py).
+CREATE TABLE IF NOT EXISTS api_versions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain      TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    snapshot    TEXT NOT NULL,
+    changes     TEXT NOT NULL DEFAULT '[]',
+    run_id      INTEGER,
+    created_at  TEXT NOT NULL
+);
+
 -- Watches: re-check an endpoint on a schedule and record what changed (ghost_api/watch.py).
 CREATE TABLE IF NOT EXISTS watches (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,10 +313,42 @@ class Store:
             delete("watch_items", "watch_id", watches)
             delete("watch_changes", "watch_id", watches)
             delete("schemas", "endpoint_id", endpoint_ids)
-            for table in ("lessons", "endpoints", "naming_plans", "allowed_endpoints", "watches"):
+            tables = ("lessons", "endpoints", "naming_plans", "allowed_endpoints", "watches",
+                      "api_versions")  # fmt: skip
+            for table in tables:
                 delete(table, "domain", [domain])
             delete("runs", "id", runs)
         return {k: v for k, v in counts.items() if v}, runs
+
+    # --- client versions (drift.py) ---
+
+    def add_api_version(
+        self,
+        domain: str,
+        version: str,
+        snapshot: dict[str, Any],
+        changes: list[dict[str, Any]],
+        run_id: int | None,
+    ) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO api_versions (domain, version, snapshot, changes, run_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (domain, version, json.dumps(snapshot, sort_keys=True), json.dumps(changes),
+                 run_id, _now()),
+            )  # fmt: skip
+
+    def api_versions(self, domain: str) -> list[dict[str, Any]]:
+        """Stored client versions for a site, newest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM api_versions WHERE domain = ? ORDER BY id DESC", (domain,)
+        )
+        return [
+            {"version": r["version"], "snapshot": json.loads(r["snapshot"]),
+             "changes": json.loads(r["changes"]), "run_id": r["run_id"],
+             "created_at": r["created_at"]}
+            for r in rows
+        ]  # fmt: skip
 
     def clear_llm_cache(self) -> int:
         """Remove cached LLM answers (they contain text from the pages that were explored)."""

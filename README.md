@@ -691,6 +691,19 @@ async with AsyncQuotesToscrapeClient() as api:     # same methods as the sync cl
 Errors are typed: catch `QuotesToscrapeError` for any failure, or `...AuthError` (401/403),
 `...NotFoundError` (404), `...RateLimitError` (429) or `...ServerError` (5xx) for one kind.
 
+**Know when the site changes.** Every client has a version. When a refresh finds the API
+changed, the client is regenerated and its version goes up: major when code using it could
+break (a field removed, a type changed), minor when something was added. Each package has a
+`CHANGELOG.md`.
+
+```bash
+ghost-api diff quotes.toscrape.com/scroll --live      # call each endpoint once and compare
+ghost-api diff quotes.toscrape.com/scroll --history   # every client version
+```
+
+To get a pull request when that happens, use the GitHub Action: see
+[docs/github-action.md](docs/github-action.md).
+
 **Work offline.** `ghost-api mock quotes.toscrape.com/scroll` serves the captured replies at
 the same paths on `http://127.0.0.1:8901`: point a front end or a test at it, with no traffic
 to the real site.

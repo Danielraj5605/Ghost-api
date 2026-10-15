@@ -16,8 +16,10 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
+from ghost_api import drift
 from ghost_api.agent.orchestrator import AgentResult, Explorer, StepRecord
 from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.detectors import is_bot_challenge
@@ -484,8 +486,9 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
         try:
             if opts.no_verify:
                 generated = generate_from(
-                    site, s.start_url, endpoints, s.recorder.captured, opts.out, plan, opts.lang
-                )
+                    site, s.start_url, endpoints, s.recorder.captured, opts.out, plan, opts.lang,
+                    store=store,
+                )  # fmt: skip
             else:
                 s.phase("verify")
                 s.emit(Notice("Verifying the generated client against the live API..."))
@@ -502,6 +505,7 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
                     on_round=lambda r: s.emit(round_event(r)),
                     add_sample=s.recorder.add,
                     lang=opts.lang,
+                    store=store,
                 )
                 verification = verifier.run()
                 generated = verification.result
@@ -517,6 +521,17 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
             s.emit(Notice(f"No client generated: {exc}", "warning"))
     s.replayer.close()
     if generated is not None:
+        version = drift.record(store, site, generated.spec, s.run_id)
+        generated.version = version
+        breaking = any(c.severity == "breaking" for c in version.changes)
+        level: Literal["info", "warning"] = "warning" if breaking else "info"
+        s.emit(
+            Notice(
+                f"Client version: {version.summary()}",
+                level,
+                "\n".join(c.line() for c in version.changes[:12]) if version.changes else "",
+            )
+        )
         s.emit(client_event(generated))
 
     # Workflow stage 8: remember what was learned.

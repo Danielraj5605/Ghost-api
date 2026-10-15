@@ -130,11 +130,14 @@ def main(
         _interactive()
 
 
+GLOBAL_FLAGS = ("--json", "--plain")
+
+
 def _json_first(args: list[str]) -> list[str]:
-    """`--json` may be typed anywhere (`ghost-api inspect --json`); it is a global option."""
-    if "--json" not in args:
-        return args
-    return ["--json", *(a for a in args if a != "--json")]
+    """`--json` and `--plain` may be typed anywhere (`ghost-api inspect --json`); they are
+    global options, so they are moved in front of the command."""
+    flags = [f for f in GLOBAL_FLAGS if f in args]
+    return [*flags, *(a for a in args if a not in GLOBAL_FLAGS)] if flags else args
 
 
 def json_out(data: object) -> None:
@@ -1028,6 +1031,149 @@ def _served(store_path: Path, sites: list[str] | None, quiet: Console) -> dict[s
         quiet.print("Nothing to serve: no stored site has endpoints Ghost API can call.")
         raise typer.Exit(code=1)
     return served
+
+
+@app.command()
+def diff(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    live: Annotated[
+        bool,
+        typer.Option(
+            "--live",
+            help="Also call each endpoint once and compare the reply with what was captured "
+            "(no browser).",
+        ),
+    ] = False,
+    history: Annotated[bool, typer.Option("--history", help="List the client's versions.")] = False,
+    since: Annotated[
+        str | None,
+        typer.Option(help="Changes recorded after this client version (e.g. after a refresh)."),
+    ] = None,
+    markdown: Annotated[
+        bool, typer.Option("--markdown", help="Print a pull-request description.")
+    ] = False,
+    fail_on: Annotated[
+        str, typer.Option(help="Exit 1 on: breaking, any or never (for CI).")
+    ] = "never",
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """What changed in a site's API since the last client version, and what it means."""
+    from ghost_api import drift
+    from ghost_api.generator import site_spec
+
+    if fail_on not in ("breaking", "any", "never"):
+        raise typer.BadParameter("--fail-on must be breaking, any or never")
+    with Store(_need_db(db)) as store:
+        domain = _site(store, domain)
+        versions = store.api_versions(domain)
+        if history:
+            _print_history(domain, versions)
+            return
+        try:
+            spec = site_spec(store, domain)
+        except NothingToGenerate as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=exitcodes.FAILED) from exc
+        info = drift.version_for(store, domain, spec)
+        changes = list(info.changes)
+        if since is not None:
+            info, changes = _since(store, domain, since, info, changes)
+        if live:
+            changes += _live_changes(store, domain)
+    if live and not info.changes and changes:  # only the live check found something
+        info = drift.VersionInfo(drift.bump(info.version, changes), changes, info.version,
+                                 True, info.history)  # fmt: skip
+    if _options["json"]:
+        json_out(
+            {"site": domain, "version": info.version, "previous": info.previous,
+             "changes": drift.changes_json(changes),
+             "breaking": sum(c.severity == "breaking" for c in changes)}
+        )  # fmt: skip
+    elif markdown:
+        sys.stdout.write(drift.to_markdown(domain, info, changes) + "\n")
+    elif not versions:
+        console.print(
+            f"No client version recorded for {domain} yet; the next `ghost-api generate` "
+            f"or run makes {info.version}."
+        )
+    elif not changes:
+        console.print(f"[green]No API changes[/] for {domain} since version {info.version}.")
+    else:
+        console.print(f"[bold]{domain}[/]: client {info.previous} -> {info.version}")
+        for change in changes:
+            style = {"breaking": "red", "additive": "green", "info": "dim"}[change.severity]
+            console.print(f"  [{style}]{change.line()}[/]", highlight=False)
+        console.print("[dim]Run `ghost-api generate` to write the new client version.[/]")
+    breaking = any(c.severity == "breaking" for c in changes)
+    if (fail_on == "breaking" and breaking) or (fail_on == "any" and changes):
+        raise typer.Exit(code=exitcodes.FAILED)
+
+
+def _since(
+    store: Store, domain: str, since: str, info: Any, pending: list[Any]
+) -> tuple[Any, list[Any]]:
+    """Every change recorded after version `since`, plus any not yet recorded."""
+    from ghost_api import drift
+
+    versions = store.api_versions(domain)
+    known = [v["version"] for v in versions]
+    if since not in known:
+        console.print(f"No version {since} for {domain}. Versions: {', '.join(known) or 'none'}")
+        raise typer.Exit(code=exitcodes.USAGE)
+    newer = versions[: known.index(since)]
+    changes = [drift.Change(**c) for v in reversed(newer) for c in v["changes"]] + pending
+    latest = info.version if pending else (newer[0]["version"] if newer else since)
+    return drift.VersionInfo(latest, changes, since, bool(changes), versions), changes
+
+
+def _print_history(domain: str, versions: list[dict[str, Any]]) -> None:
+    if _options["json"]:
+        json_out({"site": domain, "versions": [
+            {k: v for k, v in entry.items() if k != "snapshot"} for entry in versions
+        ]})  # fmt: skip
+        return
+    if not versions:
+        console.print(f"No client versions recorded for {domain} yet.")
+        return
+    table = Table(title=f"Client versions for {domain}", title_justify="left")
+    for col in ("Version", "Date", "Changes"):
+        table.add_column(col, overflow="fold")
+    for entry in versions:
+        counts = [c["severity"] for c in entry["changes"]]
+        summary = ", ".join(f"{counts.count(s)} {s}" for s in ("breaking", "additive", "info")
+                            if counts.count(s)) or "first version"  # fmt: skip
+        table.add_row(entry["version"], str(entry["created_at"])[:10], summary)
+    console.print(table)
+
+
+def _live_changes(store: Store, domain: str) -> list[Any]:
+    """Call each operation once (read-only, rate-limited) and compare the reply's shape."""
+    from ghost_api import drift
+    from ghost_api.analysis.schema import build_schema
+
+    try:
+        rt = SiteRuntime(store, domain)
+    except OperationError as exc:
+        console.print(f"[yellow]Live check skipped:[/] {exc}")
+        return []
+    stored = {e.key: e.response_schema for e in store.current_endpoints(domain)}
+    changes: list[Any] = []
+    with rt:
+        for op in rt.operations():
+            inputs = {i.name: i.example for i in op.inputs if i.example}
+            try:
+                result = rt.call(op, inputs)
+            except (OperationError, ReplayRefused) as exc:
+                changes.append(drift.Change("info", op.name, f"not checked live: {exc}"))
+                continue
+            if not result.ok:
+                status = result.status or "network error"
+                changes.append(drift.Change("breaking", op.name, f"live call failed ({status})"))
+                continue
+            fresh = build_schema([result.body])
+            changes += drift.live_changes(op.name, stored.get(op.endpoint.key), fresh)
+            console.print(f"[dim]  checked {op.name} live[/]")
+    return changes
 
 
 @app.command()
