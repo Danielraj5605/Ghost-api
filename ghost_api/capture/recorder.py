@@ -94,55 +94,73 @@ class TrafficRecorder:
             return None
 
         self.bytes_read += len(body_bytes)
-        if len(body_bytes) > MAX_CAPTURE_BYTES:
-            # No content-length (chunked): the body had to be read, but it is not decoded,
-            # parsed or stored, so a partial reply never becomes a schema.
-            self.dropped["response-too-large"] += 1
+        built = build_capture(
+            request.method, request.url, request.resource_type, response.status,
+            req_headers, post_bytes, resp_headers, body_bytes, self.target_host,
+        )  # fmt: skip
+        if isinstance(built, str):
+            self.dropped[built] += 1
             return None
+        return built
 
-        # Binary bodies (protobuf, images sent over fetch...) are not JSON APIs. Decoding
-        # them strictly here keeps them out; Playwright's .text() would raise mid-run.
-        body = _utf8(body_bytes)
-        post_data = _utf8(post_bytes) if post_bytes else None
-        if body is None or (post_bytes and post_data is None):
-            self.dropped["binary"] += 1
-            return None
 
-        resp_ctype = resp_headers.get("content-type")
-        if not filters.is_json_content_type(resp_ctype) and not _looks_like_json(body):
-            self.dropped["non-json"] += 1
-            return None
-        body = filters.strip_xssi(body)
-        if body.strip() and not _looks_like_json(body):
-            # Says JSON but isn't (e.g. Google's length-prefixed batchexecute envelope).
-            self.dropped["invalid-json"] += 1
-            return None
+def build_capture(
+    method: str,
+    url: str,
+    resource_type: str,
+    status: int,
+    req_headers: dict[str, str],
+    post_bytes: bytes | None,
+    resp_headers: dict[str, str],
+    body_bytes: bytes,
+    target_host: str,
+) -> tuple[CapturedRequest, RawRequest] | str:
+    """One request and reply, filtered and made safe to store: secrets redacted, personal
+    data hidden. Returns why it was dropped (a short reason) when it is not a JSON API call.
+    Used for the browser's traffic and for imported HAR files alike."""
+    req_headers = {k.lower(): v for k, v in req_headers.items()}
+    resp_headers = {k.lower(): v for k, v in resp_headers.items()}
+    if len(body_bytes) > MAX_CAPTURE_BYTES:
+        # The body is not decoded, parsed or stored, so a partial reply never becomes a schema.
+        return "response-too-large"
+    # Binary bodies (protobuf, images sent over fetch...) are not JSON APIs.
+    body = _utf8(body_bytes)
+    post_data = _utf8(post_bytes) if post_bytes else None
+    if body is None or (post_bytes and post_data is None):
+        return "binary"
+    resp_ctype = resp_headers.get("content-type")
+    if not filters.is_json_content_type(resp_ctype) and not _looks_like_json(body):
+        return "non-json"
+    body = filters.strip_xssi(body)
+    if body.strip() and not _looks_like_json(body):
+        # Says JSON but isn't (e.g. Google's length-prefixed batchexecute envelope).
+        return "invalid-json"
 
-        # Redact the full body first: truncated JSON can't be parsed for key-based redaction.
-        safe_body = filters.redact_body(body, resp_ctype) or ""
-        hidden_body, personal_data = personal.hide_body(safe_body)
-        safe_body = hidden_body or ""
-        truncated = len(safe_body) > MAX_BODY_CHARS
-        if truncated:
-            safe_body = safe_body[:MAX_BODY_CHARS]
+    # Redact the full body first: truncated JSON can't be parsed for key-based redaction.
+    safe_body = filters.redact_body(body, resp_ctype) or ""
+    hidden_body, personal_data = personal.hide_body(safe_body)
+    safe_body = hidden_body or ""
+    truncated = len(safe_body) > MAX_BODY_CHARS
+    if truncated:
+        safe_body = safe_body[:MAX_BODY_CHARS]
 
-        req_ctype = req_headers.get("content-type")
-        raw = RawRequest(request.method, request.url, dict(req_headers), post_data)
-        captured = CapturedRequest(
-            method=request.method,
-            url=filters.redact_url(request.url),
-            status=response.status,
-            resource_type=request.resource_type,
-            req_headers=filters.redact_headers(req_headers),
-            req_body=filters.redact_body(post_data, req_ctype),
-            req_content_type=req_ctype,
-            resp_content_type=resp_ctype,
-            resp_body=safe_body,
-            truncated=truncated,
-            third_party=filters.is_third_party(request.url, self.target_host),
-            personal=personal_data,
-        )
-        return captured, raw
+    req_ctype = req_headers.get("content-type")
+    raw = RawRequest(method, url, dict(req_headers), post_data)
+    captured = CapturedRequest(
+        method=method,
+        url=filters.redact_url(url),
+        status=status,
+        resource_type=resource_type,
+        req_headers=filters.redact_headers(req_headers),
+        req_body=filters.redact_body(post_data, req_ctype),
+        req_content_type=req_ctype,
+        resp_content_type=resp_ctype,
+        resp_body=safe_body,
+        truncated=truncated,
+        third_party=filters.is_third_party(url, target_host),
+        personal=personal_data,
+    )
+    return captured, raw
 
 
 def _utf8(data: bytes) -> str | None:

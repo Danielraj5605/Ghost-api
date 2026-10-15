@@ -406,6 +406,85 @@ def run(
     result.finish(settings.db_path)
 
 
+@app.command("import")
+def import_har(
+    har: Annotated[Path, typer.Argument(help="A .har file saved from the browser's DevTools.")],
+    goal: Annotated[
+        str, typer.Option("--goal", "-g", help="What you were doing (for the report).")
+    ] = "imported from a HAR file",
+    url: Annotated[
+        str | None, typer.Option(help="The site's start URL (default: the first page in the file).")
+    ] = None,
+    offline: Annotated[
+        bool,
+        typer.Option(
+            "--offline", help="Send nothing to the site: no endpoint tests, no client tests."
+        ),
+    ] = False,
+    lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
+    rate_limit: Annotated[
+        float, typer.Option(help="Max requests per second the tool sends itself.")
+    ] = 1.0,
+    max_probes: Annotated[
+        int, typer.Option(help="Maximum direct API calls for testing endpoints.")
+    ] = 60,
+    out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Map a site's API from a HAR file you recorded in your browser (no AI, no browser).
+
+    For sites behind a login or a bot check: browse them yourself with DevTools open
+    (Network tab), "Save all as HAR", then import. Cookies, tokens and personal data are
+    removed before anything is stored. Delete the .har file afterwards: it holds them.
+    """
+    from ghost_api.capture.har import HarError, read_har, summary
+    from ghost_api.net import RobotsPolicy
+
+    lang = _check_lang(lang)
+    try:
+        recording = read_har(har, _normalize_url(url) if url else None)
+    except (HarError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=exitcodes.USAGE) from exc
+    for line in summary(recording):
+        console.print(f"[dim]{line}[/]")
+    path = db or default_db_path()
+    bus = EventBus()
+    renderer = _renderer()
+    bus.subscribe(renderer.handle)
+    result = _RunResult()
+    bus.subscribe(result)
+    limiter = RateLimiter(rate_limit)
+    host = recording.target_host
+    if offline:
+        robots = RobotsPolicy.allow_all(host, "offline import: nothing is sent")
+    else:
+        robots, allowed = robots_policy(recording.start_url, False, limiter, bus)
+        if not allowed:  # the recording is still mapped, just never replayed
+            offline = True
+            bus.emit(Notice("Importing without testing endpoints (robots.txt)", "warning"))
+    opts = RunOptions(lang=lang, max_probes=max_probes, no_probe=offline, no_verify=offline,
+                      out=out)  # fmt: skip
+    with Store(path) as store:
+        renderer.start()
+        try:
+            s = open_session(
+                store, bus, host, recording.start_url, goal, False, limiter, robots, None,
+                max_probes, screens_root=path, lang=lang,
+            )  # fmt: skip
+            started = time.monotonic()
+            s.phase("explore")
+            for captured, raw in recording.captured:
+                s.recorder.add(captured, raw)
+            s.recorder.dropped.update(recording.dropped)
+            reason = f"imported {len(recording.captured)} API calls from {har.name}"
+            finish(s, "captured", reason, started, opts)
+        finally:
+            renderer.close()
+        console.print(f"[dim]Saved to {path}. You can delete {har.name} now.[/]")
+    result.finish(path)
+
+
 @app.command()
 def refresh(
     domain: Annotated[str, typer.Argument(help=SITE_HELP)],

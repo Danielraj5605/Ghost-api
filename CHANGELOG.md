@@ -35,6 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
   `--fail-on`), and a GitHub Action (`action.yml`) that refreshes a site and reports what
   changed for a pull request.
 
+- `ghost-api import FILE.har`: map an API from a HAR file recorded in your own browser
+  (sites behind a login or a bot check). Same filters as live capture: secrets redacted and
+  personal data hidden before storing; `--offline` sends nothing to the site.
 - A quality gate: ten local test sites with known answers (paging, auth headers, robots
   rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI
   against `evals/thresholds.json`; a weekly live evaluation.

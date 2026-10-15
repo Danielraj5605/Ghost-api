@@ -704,6 +704,16 @@ ghost-api diff quotes.toscrape.com/scroll --history   # every client version
 To get a pull request when that happens, use the GitHub Action: see
 [docs/github-action.md](docs/github-action.md).
 
+**Sites Ghost API can't browse by itself** (a login, a bot check, a long flow): browse them
+yourself with DevTools open, use **Network > Save all as HAR**, then
+
+```bash
+ghost-api import session.har --goal "my orders"     # add --offline to send nothing to the site
+```
+
+Cookies, tokens and personal data are removed before anything is stored. Delete the `.har`
+file afterwards: it holds them in plain text.
+
 **Work offline.** `ghost-api mock quotes.toscrape.com/scroll` serves the captured replies at
 the same paths on `http://127.0.0.1:8901`: point a front end or a test at it, with no traffic
 to the real site.
