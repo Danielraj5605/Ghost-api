@@ -7,8 +7,11 @@ options and renders those events with `ghost_api/ui/terminal.py`.
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit
@@ -18,7 +21,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ghost_api import __version__, watch
+from ghost_api import __version__, exitcodes, watch
 from ghost_api.config import (
     Settings,
     check_language,
@@ -26,7 +29,14 @@ from ghost_api.config import (
     load_env,
     state_dir,
 )
-from ghost_api.events import EventBus, Notice
+from ghost_api.events import (
+    ClientGenerated,
+    EndpointsUpdated,
+    EventBus,
+    Notice,
+    RunFinished,
+    RunStarted,
+)
 from ghost_api.export import tabular, write_exports
 from ghost_api.export.site_data import endpoint_summary
 from ghost_api.export.tabular import FORMATS
@@ -49,6 +59,7 @@ from ghost_api.pipeline import (
     round_event,
 )
 from ghost_api.probe.replay import ReplayRefused
+from ghost_api.project import ProjectError, default_map, find_project
 from ghost_api.runtime import OperationError, SiteRuntime
 from ghost_api.site import SiteAmbiguous, resolve_site, site_host
 from ghost_api.ui import keys
@@ -66,7 +77,7 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
-_options = {"plain": False}
+_options = {"plain": False, "json": False}
 
 
 def _version(value: bool) -> None:
@@ -87,11 +98,31 @@ def main(
     plain: Annotated[
         bool, typer.Option("--plain", help="Simple line-by-line output (for logs and CI).")
     ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Print the result as JSON on stdout (progress goes to stderr). "
+            "Works anywhere on the command line.",
+        ),
+    ] = False,
 ) -> None:
     load_env()
     for stream in (sys.stdout, sys.stderr):
         safe_output(stream)
-    _options["plain"] = plain
+    _options["plain"] = plain or json_output
+    _options["json"] = json_output
+    if json_output:  # stdout is only for the JSON result; everything else goes to stderr
+        saved = console._file  # usually None: Rich then follows sys.stdout as it changes
+        console.file = sys.stderr
+        ctx.call_on_close(lambda: setattr(console, "_file", saved))
+    try:
+        project = find_project()
+    except ProjectError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=exitcodes.USAGE) from exc
+    if project is not None:
+        ctx.default_map = default_map(project, ctx.command)
     if ctx.invoked_subcommand is None:
         if not sys.stdin.isatty():
             console.print(ctx.get_help())
@@ -99,10 +130,23 @@ def main(
         _interactive()
 
 
+def _json_first(args: list[str]) -> list[str]:
+    """`--json` may be typed anywhere (`ghost-api inspect --json`); it is a global option."""
+    if "--json" not in args:
+        return args
+    return ["--json", *(a for a in args if a != "--json")]
+
+
+def json_out(data: object) -> None:
+    """The command's result, as JSON on stdout (progress and messages are on stderr)."""
+    sys.stdout.write(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
+    sys.stdout.flush()
+
+
 def entry() -> None:
     """The `ghost-api` command: the app, with a plain message for a damaged database."""
     try:
-        app()
+        app(args=_json_first(sys.argv[1:]), prog_name="ghost-api")
     except StoreError as exc:
         console.print(f"[red]{exc}[/]")
         raise SystemExit(1) from None
@@ -123,7 +167,7 @@ def _invoke(args: list[str]) -> None:
     """Run `ghost-api ARGS...` inside this process (the interactive session's commands)."""
     command = typer.main.get_command(app)
     try:
-        command.main(args=args, prog_name="ghost-api", standalone_mode=False)
+        command.main(args=_json_first(args), prog_name="ghost-api", standalone_mode=False)
     except typer.Abort:
         console.print("[yellow]Stopped.[/]")
     except typer.Exit:
@@ -151,6 +195,38 @@ def _interactive() -> None:
 
     repl = Repl(console, _invoke, ask)
     run_session(console, repl, has_llm, history_file=state_dir() / "history.txt")
+
+
+class _RunResult:
+    """Collects a run's outcome from its events, for `--json`."""
+
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {"status": "failed", "endpoints": [], "client": None}
+
+    def __call__(self, event: Any) -> None:
+        if isinstance(event, RunStarted):
+            self.data.update(run_id=event.run_id, site=event.domain, url=event.start_url)
+        elif isinstance(event, EndpointsUpdated):
+            self.data["endpoints"] = event.endpoints
+        elif isinstance(event, ClientGenerated):
+            self.data["client"] = event.to_dict()
+        elif isinstance(event, RunFinished):
+            finished = event.to_dict()
+            finished.pop("type", None)
+            finished["endpoint_count"] = finished.pop("endpoints")  # the list stays in "endpoints"
+            self.data.update(finished)
+
+    def finish(self, db: Path) -> None:
+        """Print the JSON (with --json) and exit with the code for the run's status."""
+        status = str(self.data["status"])
+        if _options["json"]:
+            json_out(self.data | {"database": str(db), "exit_code": _run_exit(status)})
+        if _run_exit(status):
+            raise typer.Exit(code=_run_exit(status))
+
+
+def _run_exit(status: str) -> int:
+    return exitcodes.for_run_status(status)
 
 
 def _renderer() -> TerminalRenderer:
@@ -186,6 +262,13 @@ def _check_lang(lang: str) -> str:
         return check_language(lang)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _not_allowed(url: str) -> None:
+    if _options["json"]:
+        json_out({"status": "not-allowed", "url": url, "reason": "disallowed by robots.txt",
+                  "exit_code": exitcodes.NOT_ALLOWED})  # fmt: skip
+    raise typer.Exit(code=exitcodes.NOT_ALLOWED)
 
 
 def _need_db(db: Path | None) -> Path:
@@ -274,10 +357,12 @@ def run(
     bus = EventBus()
     renderer = _renderer()
     bus.subscribe(renderer.handle)
+    result = _RunResult()
+    bus.subscribe(result)
 
     robots, allowed = robots_policy(settings.url, settings.ignore_robots, limiter, bus)
     if not allowed:
-        raise typer.Exit(code=2)
+        _not_allowed(settings.url)
     gateway = None if no_agent else _gateway(settings.max_llm_calls, required=True)
 
     status = "failed"
@@ -315,8 +400,7 @@ def run(
         finally:
             renderer.close()
         console.print(f"[dim]Saved to {settings.db_path}[/]")
-    if status in ("failed", "llm-unavailable"):
-        raise typer.Exit(code=1)
+    result.finish(settings.db_path)
 
 
 @app.command()
@@ -360,6 +444,8 @@ def refresh(
         bus = EventBus()
         renderer = _renderer()
         bus.subscribe(renderer.handle)
+        result = _RunResult()
+        bus.subscribe(result)
         bus.emit(
             Notice(
                 f"Refreshing {domain} from memory: {len(mem.endpoints)} endpoint(s), "
@@ -369,7 +455,7 @@ def refresh(
         limiter = RateLimiter(rate_limit)
         robots, allowed = robots_policy(mem.start_url, ignore_robots, limiter, bus)
         if not allowed:
-            raise typer.Exit(code=2)
+            _not_allowed(mem.start_url)
         gateway = None if no_llm else _gateway(max_llm_calls, required=False)
         opts = RunOptions(
             lang=lang,
@@ -412,6 +498,8 @@ def refresh(
                 f"[bold]Memory:[/] {now} LLM call(s) vs {first} on the first run "
                 f"({saved:.0f}% fewer)"
             )
+        result.data["llm_calls"] = now
+    result.finish(path)
 
 
 @app.command()
@@ -482,7 +570,10 @@ def generate(
     finally:
         if gateway is not None:
             gateway.close()
-    print_client(console, client_event(result))
+    event = client_event(result)
+    print_client(console, event)
+    if _options["json"]:
+        json_out({"site": domain, "client": event.to_dict()})
 
 
 @app.command()
@@ -535,8 +626,15 @@ def verify(
         print_client(console, client_event(report.result))
     elapsed = time.monotonic() - started
     console.print(f"[dim]Verification completed in {elapsed:.1f}s[/]")
-    if any(state == "failed" for state, _ in report.statuses.values()):
-        raise typer.Exit(code=1)
+    failed = any(state == "failed" for state, _ in report.statuses.values())
+    if _options["json"]:
+        client = client_event(report.result).to_dict() if report.result is not None else None
+        json_out(
+            {"site": domain, "passed": not failed, "seconds": round(elapsed, 1),
+             "endpoints": summaries, "client": client}
+        )  # fmt: skip
+    if failed:
+        raise typer.Exit(code=exitcodes.FAILED)
 
 
 @app.command()
@@ -561,6 +659,11 @@ def report(
     if exports.html:
         console.print(Text("Report (shareable page): ") + file_link(exports.html))
     console.print(f"OpenAPI: {exports.openapi}")
+    if _options["json"]:
+        json_out(
+            {"site": domain, "run_id": run_row.id, "report": str(exports.report),
+             "report_html": str(exports.html or ""), "openapi": str(exports.openapi)}
+        )  # fmt: skip
 
 
 def _params(pairs: list[str]) -> dict[str, str]:
@@ -573,6 +676,16 @@ def _params(pairs: list[str]) -> dict[str, str]:
             raise typer.Exit(code=2)
         params[name.strip()] = value
     return params
+
+
+def _operation_json(op: Any) -> dict[str, Any]:
+    return {
+        "name": op.name,
+        "summary": op.summary,
+        "endpoint": op.label,
+        "inputs": [asdict(i) for i in op.inputs],
+        "pagination": op.pagination,
+    }
 
 
 def _operations_table(rt: SiteRuntime) -> Table:
@@ -626,6 +739,9 @@ def fetch(
             console.print(str(exc))
             raise typer.Exit(code=1) from exc
     with rt:
+        if operation is None and _options["json"]:
+            json_out({"site": domain, "operations": [_operation_json(o) for o in rt.operations()]})
+            return
         if operation is None:
             console.print(_operations_table(rt))
             ops = rt.operations()
@@ -665,6 +781,11 @@ def fetch(
     console.print(saved + file_link(target))
     if hidden:
         console.print(f"[dim]{hidden} personal values hidden[/]")
+    if _options["json"]:
+        json_out(
+            {"site": domain, "operation": op.name, "file": str(target), "rows": len(records),
+             "personal_values_hidden": hidden, "records": records}
+        )  # fmt: skip
 
 
 watch_app = typer.Typer(
@@ -754,6 +875,9 @@ def watch_list(
     """Show your watches."""
     with Store(_need_db(db)) as store:
         rows = store.watches()
+    if _options["json"]:
+        json_out({"watches": rows})
+        return
     if not rows:
         console.print("No watches yet. Add one with `ghost-api watch add SITE OPERATION`.")
         return
@@ -989,9 +1113,11 @@ def forget(
                 sure = typer.confirm(f"Delete {what}? This can't be undone.", default=False)
             if not sure:
                 raise typer.Exit(code=1)
+        deleted: dict[str, Any] = {"site": site, "rows": {}, "folders": [], "llm_cache": 0}
         if site:
             counts, run_ids = store.forget_site(site)
             rows = sum(counts.values())
+            deleted["rows"] = counts
             console.print(f"Deleted {rows} stored row(s) for {site}.")
             site_out = (out / site).resolve()
             if not keep_files and rows and site_out.is_relative_to(out.resolve()):
@@ -999,46 +1125,173 @@ def forget(
                 for folder in folders:
                     if folder.is_dir():
                         shutil.rmtree(folder, ignore_errors=True)
+                        deleted["folders"].append(str(folder))
                         console.print(f"[dim]Removed {folder}[/]")
         if llm_cache:
-            console.print(f"Cleared {store.clear_llm_cache()} cached LLM answer(s).")
+            deleted["llm_cache"] = store.clear_llm_cache()
+            console.print(f"Cleared {deleted['llm_cache']} cached LLM answer(s).")
         store.conn.execute("VACUUM")  # really remove the data from the file
     console.print("[dim]Copies you made elsewhere (clients, downloads) are not touched.[/]")
+    if _options["json"]:
+        json_out(deleted)
+
+
+KEY_CHOICES = {
+    "1": ("Gemini (Google, free tier)", "GEMINI_API_KEY", "https://aistudio.google.com/apikey"),
+    "2": ("Groq (free tier)", "GROQ_API_KEY", "https://console.groq.com/keys"),
+    "3": ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/keys"),
+}
+
+
+@app.command()
+def init(
+    lang: Annotated[str, typer.Option(help="Default client language: python or typescript.")] = (
+        "python"
+    ),
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Don't ask: install the browser, skip the key.")
+    ] = False,
+    skip_browser: Annotated[
+        bool, typer.Option("--skip-browser", help="Don't download Chromium.")
+    ] = False,
+) -> None:
+    """Set up Ghost API here: project file, browser, LLM key, .gitignore. Safe to re-run."""
+    from ghost_api.browser.install import chromium_path, install_chromium
+    from ghost_api.project import PROJECT_FILE, ensure_gitignore, write_project
+    from ghost_api.ui import keys
+
+    lang = _check_lang(lang)
+    root = Path.cwd()
+    done: dict[str, Any] = {"project": str(root / PROJECT_FILE)}
+
+    def ask(question: str, default: bool = True) -> bool:
+        if yes:
+            return default
+        with keys.input_paused():
+            return typer.confirm(question, default=default)
+
+    # 1. Project file
+    if (root / PROJECT_FILE).exists():
+        console.print(f"[dim]✓ {PROJECT_FILE} already here[/]")
+        done["project_created"] = False
+    else:
+        write_project(root, lang)
+        console.print(f"[green]✓[/] Created {PROJECT_FILE} (settings) and .ghost-api/ (data)")
+        done["project_created"] = True
+    if any((folder / ".git").exists() for folder in (root, *root.parents)):
+        added = ensure_gitignore(root)
+        done["gitignore_added"] = added
+        if added:
+            console.print(f"[green]✓[/] .gitignore now keeps out: {', '.join(added)}")
+
+    # 2. Browser
+    browser = chromium_path()
+    question = "Chromium (the browser Ghost API drives) is missing. Download it now (~150 MB)?"
+    if browser is None and not skip_browser and ask(question):
+        console.print("[dim]Downloading Chromium...[/]")
+        browser = chromium_path() if install_chromium() else None
+    done["chromium"] = str(browser) if browser else None
+    if browser:
+        console.print("[green]✓[/] Chromium is installed")
+    else:
+        console.print(
+            "[yellow]![/] No Chromium yet. Later: ghost-api init (or playwright install chromium)"
+        )
+
+    # 3. LLM key (optional: --no-agent runs work without one)
+    has_key = any(p.api_key for p in default_providers())
+    done["llm_key"] = has_key
+    if has_key:
+        console.print("[green]✓[/] An LLM key is set")
+    elif not yes and ask("Add an LLM key now? (Without one, runs only load and scroll pages.)"):
+        for number, (name, _env, url) in KEY_CHOICES.items():
+            console.print(f"  {number}. {name}  [dim]{url}[/]")
+        with keys.input_paused():
+            choice = typer.prompt("Provider", default="1")
+            name, env, _url = KEY_CHOICES.get(choice, KEY_CHOICES["1"])
+            key = typer.prompt(f"Paste your {env} (hidden)", hide_input=True).strip()
+        if key:
+            env_file = root / ".env"
+            lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+            lines = [line for line in lines if not line.startswith(f"{env}=")] + [f"{env}={key}"]
+            env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            os.environ[env] = key
+            done["llm_key"] = True
+            console.print(f"[green]✓[/] Saved {env} in .env (keep this file private)")
+    else:
+        console.print("[dim]No LLM key: add one later with ghost-api init[/]")
+
+    if _options["json"]:
+        json_out(done)
+        return
+    console.print(
+        "\n[bold]Ready.[/] Try:\n"
+        '  ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes"\n'
+        "  ghost-api            (interactive session)\n"
+        "  ghost-api doctor     (check everything)"
+    )
 
 
 @app.command()
 def doctor() -> None:
-    """Check that each LLM provider in .env answers (uses one tiny call per provider)."""
+    """Check your setup: Python, the browser, the project, the database and each LLM key
+    (one tiny call per provider)."""
+    import platform
+
+    from ghost_api.browser.install import chromium_path
+
     started = time.monotonic()
-    table = Table(title="LLM providers")
-    for col in ("Provider", "Model", "Key", "Result", "Time"):
-        table.add_column(col)
+    project = find_project()
+    browser = chromium_path()
+    db = default_db_path()
+    setup = [
+        ("Python", platform.python_version(), sys.version_info >= (3, 11), "needs 3.11 or newer"),
+        ("Chromium", str(browser or "not installed"), browser is not None,
+         "run: ghost-api init (or: playwright install chromium)"),
+        ("Project", str(project.file if project else "none (using this folder)"), True, ""),
+        ("Database", f"{db} ({'exists' if db.exists() else 'created on the first run'})", True,
+         ""),
+    ]  # fmt: skip
     rows = check_providers(default_providers())
-    for r in rows:
-        if not r["key"]:
-            table.add_row(r["provider"], r["model"], "[dim]missing[/]", "skipped", "-")
-            continue
-        result = "[green]OK[/]" if r["ok"] else f"[red]failed:[/] {r['detail'][:90]}"
-        table.add_row(r["provider"], r["model"], "set", result, f"{r['seconds']:.1f}s")
-    console.print(table)
-    elapsed = time.monotonic() - started
     working = sum(r["ok"] for r in rows)
-    if not working:
-        console.print("[red]No provider is working.[/]")
-        console.print(
-            "\n[bold]How to fix:[/]\n"
-            "  1. Create a file named .env in the folder you run ghost-api from\n"
-            "  2. Add at least one key, e.g.:  GEMINI_API_KEY=your-key-here\n"
-            "     (GROQ_API_KEY and OPENROUTER_API_KEY work too)\n"
-            "  3. Free Gemini key: https://aistudio.google.com/apikey\n"
-            "  4. Run ghost-api doctor again\n"
-            "[dim]Without a key, ghost-api run still works with --no-agent.[/]"
-        )
-        raise typer.Exit(code=1)
-    console.print(
-        f"{working} provider(s) working in {elapsed:.1f}s. "
-        f"Fallback order: GHOST_API_PROVIDERS in .env."
-    )
+    elapsed = time.monotonic() - started
+    if _options["json"]:
+        json_out(
+            {"setup": [{"check": n, "value": v, "ok": ok, "fix": fix} for n, v, ok, fix in setup],
+             "providers": rows, "working_providers": working, "seconds": round(elapsed, 1)}
+        )  # fmt: skip
+    else:
+        checks = Table(title="Setup", title_justify="left")
+        for col in ("Check", "Found", ""):
+            checks.add_column(col, overflow="fold")
+        for name, value, ok, fix in setup:
+            checks.add_row(name, value, "[green]OK[/]" if ok else f"[red]missing:[/] {fix}")
+        console.print(checks)
+        table = Table(title="LLM providers", title_justify="left")
+        for col in ("Provider", "Model", "Key", "Result", "Time"):
+            table.add_column(col)
+        for r in rows:
+            if not r["key"]:
+                table.add_row(r["provider"], r["model"], "[dim]missing[/]", "skipped", "-")
+                continue
+            result = "[green]OK[/]" if r["ok"] else f"[red]failed:[/] {r['detail'][:90]}"
+            table.add_row(r["provider"], r["model"], "set", result, f"{r['seconds']:.1f}s")
+        console.print(table)
+        if working:
+            console.print(
+                f"{working} provider(s) working in {elapsed:.1f}s. "
+                "Fallback order: GHOST_API_PROVIDERS in .env."
+            )
+        else:
+            console.print(
+                "[yellow]No LLM provider is working.[/] Runs still work with --no-agent "
+                "(the page is loaded and scrolled, no AI).\n"
+                "[bold]To add a key:[/] run ghost-api init, or put GEMINI_API_KEY=your-key "
+                "(or GROQ_API_KEY / OPENROUTER_API_KEY) in a .env file in this folder.\n"
+                "Free Gemini key: https://aistudio.google.com/apikey"
+            )
+    if not all(ok for _, _, ok, _ in setup) or not working:
+        raise typer.Exit(code=exitcodes.FAILED)
 
 
 @app.command()
@@ -1062,6 +1315,14 @@ def inspect(
         endpoints = store.current_endpoints(domain) if domain else []
         total_endpoints = len(endpoints) if domain else _endpoint_total(store, runs)
         lessons = store.lessons_for(domain, limit=20) if domain else []
+    if _options["json"]:
+        json_out(
+            {"site": domain, "sites": sorted({r.domain for r in runs}),
+             "endpoint_count": total_endpoints, "runs": [asdict(r) for r in runs],
+             "endpoints": [endpoint_summary(e, domain) for e in endpoints] if domain else [],
+             "lessons": lessons}
+        )  # fmt: skip
+        return
     if not runs:
         console.print("No runs found.")
         return

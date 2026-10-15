@@ -1,0 +1,26 @@
+name: Bug report
+description: Something went wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      description: Remove any keys or personal data.
+      render: shell
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `ghost-api doctor --json`
+      description: Shows versions and setup; it never includes your keys.
+      render: json
+  - type: input
+    id: site
+    attributes:
+      label: Site (if you can share it)

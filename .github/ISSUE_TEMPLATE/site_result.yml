@@ -1,0 +1,19 @@
+name: Site result
+description: Ghost API on a real site, good or bad (helps the evaluation)
+labels: [site-result]
+body:
+  - type: input
+    id: site
+    attributes:
+      label: Site and goal
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options: [Worked well, Partly worked, Did not work]
+  - type: textarea
+    id: details
+    attributes:
+      label: What it found or missed

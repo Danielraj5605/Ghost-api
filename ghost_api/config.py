@@ -6,9 +6,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from ghost_api import __version__
+from ghost_api.project import Project, ProjectError, find_project
 
 TOOL_NAME = "GhostAPI"
 # Appended to the browser's real user-agent so sites can identify the tool (NFR-20).
@@ -70,9 +71,32 @@ class ApiKeys:
     openrouter: str | None
 
 
+LOCAL_ONLY = {"GHOST_API_DB"}
+
+
 def load_env() -> None:
-    """Load .env from the current directory (if present) without overriding real env vars."""
-    load_dotenv(override=False)
+    """Load `.env` files without overriding real environment variables. First found wins
+    for each key: the current folder, the project folder (ghost-api.toml), your user
+    folder (~/.ghost-api/.env, for installed copies), then the Ghost API source folder
+    (a git checkout)."""
+    local = [Path.cwd() / ".env"]
+    project = _project()
+    if project is not None:
+        local.append(project.root / ".env")
+    shared = [state_dir() / ".env", Path(__file__).resolve().parent.parent / ".env"]
+    seen: set[Path] = set()
+    for path in [p.resolve() for p in local]:
+        if path.is_file() and path not in seen:
+            seen.add(path)
+            load_dotenv(path, override=False)
+    for path in [p.resolve() for p in shared]:
+        if path.is_file() and path not in seen:
+            seen.add(path)
+            # Keys and preferences only: a database named in another folder's .env must not
+            # replace this folder's or this project's database.
+            for name, value in dotenv_values(path).items():
+                if value is not None and name not in LOCAL_ONLY and name not in os.environ:
+                    os.environ[name] = value
 
 
 def state_dir() -> Path:
@@ -81,7 +105,21 @@ def state_dir() -> Path:
 
 
 def default_db_path() -> Path:
-    return Path(os.getenv("GHOST_API_DB", "ghost_api.db"))
+    """GHOST_API_DB, else the project's database (ghost-api.toml), else ./ghost_api.db."""
+    if os.getenv("GHOST_API_DB"):
+        return Path(os.environ["GHOST_API_DB"])
+    project = _project()
+    if project is not None:
+        project.database.parent.mkdir(parents=True, exist_ok=True)
+        return project.database
+    return Path("ghost_api.db")
+
+
+def _project() -> Project | None:
+    try:
+        return find_project()
+    except ProjectError:
+        return None  # reported by the CLI; settings fall back to the current folder
 
 
 def api_keys() -> ApiKeys:

@@ -4,7 +4,7 @@
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python (or TypeScript) client library for it, with tests.
 
-![The Ghost API dashboard during a real run on quotes.toscrape.com](docs/images/dashboard-demo.gif)
+![The Ghost API dashboard during a real run on quotes.toscrape.com](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-demo.gif)
 
 <sub>A real run on quotes.toscrape.com from the web dashboard (`ghost-api ui`): the agent loads the page, the API call is tested, a client is generated and verified, and "Try it" calls the endpoint. 2 free LLM calls, about 20 seconds.</sub>
 
@@ -341,14 +341,86 @@ Runs on an ordinary laptop: 8 GB RAM, no GPU.
 
 ## Getting started
 
-**Requirements:** Python 3.11+, Git, and at least one free LLM key: [Google AI Studio](https://aistudio.google.com/) (Gemini), [Groq](https://console.groq.com/) or [OpenRouter](https://openrouter.ai/). Having two gives a fallback.
+**You need:** Python 3.11+ and, for the AI agent, one free LLM key from
+[Google AI Studio](https://aistudio.google.com/apikey) (Gemini), [Groq](https://console.groq.com/keys)
+or [OpenRouter](https://openrouter.ai/keys). Without a key, runs still load and scroll pages
+and map what they see (`--no-agent`).
 
-Pick the block for your terminal. You don't need Node.js: the dashboard comes prebuilt.
+**1. Install** (once; any OS). [pipx](https://pipx.pypa.io) or [uv](https://docs.astral.sh/uv/)
+put the `ghost-api` command on your PATH in its own environment:
+
+```bash
+pipx install git+https://github.com/Danielraj5605/Ghost-api
+# or:  uv tool install git+https://github.com/Danielraj5605/Ghost-api
+```
+
+(After the first PyPI release this becomes `pipx install ghost-api-cli`.)
+
+**2. Set up a folder** for your work. `init` creates the project file, downloads the
+browser Ghost API drives (Chromium, about 150 MB, once), asks for an LLM key (optional,
+typed hidden, saved in `.env`) and keeps keys and data out of git:
+
+```bash
+mkdir my-apis && cd my-apis
+ghost-api init
+ghost-api doctor        # checks Python, Chromium, the project and each key
+```
+
+**3. Explore a site:**
+
+```bash
+ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes with their authors"
+ghost-api               # or the interactive session: paste a site, say what you want
+```
+
+### Project settings
+
+`ghost-api init` writes `ghost-api.toml`. Every command run in that folder, or any folder
+below it, uses the project's database and output folder, and its defaults:
+
+```toml
+[project]
+database = ".ghost-api/ghost_api.db"   # runs, traffic, endpoints (keep it private)
+output = "output"                      # reports, clients, downloads
+
+[defaults]                              # any command option, by name
+lang = "typescript"
+rate_limit = 0.5
+max_steps = 30
+```
+
+Options on the command line win over the file, and `GHOST_API_DB` wins over both. Keys are
+read from `.env` in the current folder, the project folder, then `~/.ghost-api/.env`
+(handy for one set of keys everywhere).
+
+### Scripts and CI: `--json` and exit codes
+
+Add `--json` anywhere on a command to get its result as JSON on stdout; progress and
+messages go to stderr, so it pipes cleanly:
+
+```bash
+ghost-api run https://quotes.toscrape.com/scroll -g "list quotes" --no-agent --json > run.json
+ghost-api inspect quotes.toscrape.com/scroll --json | jq '.endpoints[].path'
+ghost-api fetch quotes.toscrape.com/scroll get_quotes --pages 3 --json | jq '.rows'
+```
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Done (a run may still have found nothing; check the JSON or report) |
+| 1 | Failed: an error, failed checks, or nothing stored to work on |
+| 2 | Wrong command line or setup: bad option, missing LLM key, unreadable `ghost-api.toml` |
+| 3 | The site said no: robots.txt disallows it, or a bot-protection page |
+| 130 | Stopped with Ctrl+C |
+
+### From source (contributors)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the developer setup. In short, pick the block for
+your terminal (no Node.js needed: the dashboard comes prebuilt):
 
 **Windows, Command Prompt (cmd)**
 
 ```bat
-git clone <your-repo-url> ghost-api
+git clone https://github.com/Danielraj5605/Ghost-api ghost-api
 cd ghost-api
 python -m venv .venv
 .venv\Scripts\activate.bat
@@ -360,7 +432,7 @@ copy .env.example .env
 **Windows, PowerShell**
 
 ```powershell
-git clone <your-repo-url> ghost-api
+git clone https://github.com/Danielraj5605/Ghost-api ghost-api
 cd ghost-api
 python -m venv .venv
 .venv\Scripts\Activate.ps1
@@ -375,7 +447,7 @@ If PowerShell says running scripts is disabled, run
 **macOS / Linux**
 
 ```bash
-git clone <your-repo-url> ghost-api
+git clone https://github.com/Danielraj5605/Ghost-api ghost-api
 cd ghost-api
 python3 -m venv .venv
 source .venv/bin/activate
@@ -453,7 +525,7 @@ type `/exit` or press **Ctrl+C twice**; a single Ctrl+C only stops what's runnin
 lists the commands, Tab completes them, and the arrow keys bring back earlier lines.
 `ghost-api run ...` still does a single run, and `--plain` gives simple lines for logs.
 
-![The terminal UI after a real run on quotes.toscrape.com](docs/images/terminal-run.svg)
+![The terminal UI after a real run on quotes.toscrape.com](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/terminal-run.svg)
 
 **2. The web dashboard.** `ghost-api ui` opens it in your browser (local only, at
 `http://127.0.0.1:8800`). Start a run, watch the agent's browser and reasoning live, then
@@ -461,11 +533,11 @@ browse everything it found. Every past run can be replayed.
 
 | Start a run | Watch it live |
 |---|---|
-| ![Home page with the URL and goal form](docs/images/dashboard-home.png) | ![Live run with the browser view, activity and endpoints](docs/images/dashboard-run.png) |
+| ![Home page with the URL and goal form](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-home.png) | ![Live run with the browser view, activity and endpoints](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-run.png) |
 | **Endpoints and their fields** | **"Try it": call an endpoint with your own parameters** |
-| ![Site page with the endpoint list and details](docs/images/dashboard-site.png) | ![Try it showing a live response](docs/images/dashboard-try-it.png) |
+| ![Site page with the endpoint list and details](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-site.png) | ![Try it showing a live response](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-try-it.png) |
 | **The generated client** | **On a phone** |
-| ![Client code tab with Python and TypeScript](docs/images/dashboard-code.png) | <img src="docs/images/dashboard-phone.png" alt="The site page on a phone" width="260"> |
+| ![Client code tab with Python and TypeScript](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-code.png) | <img src="https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/dashboard-phone.png" alt="The site page on a phone" width="260"> |
 
 "Try it" only calls endpoints that read data. Anything that looks like it changes data
 (add to cart, delete, update...) is refused.
@@ -475,7 +547,7 @@ the endpoints, the run's activity, the generated code, the OpenAPI spec and the 
 works offline and needs no server, so you can email it or attach it to an issue. Example
 values of sensitive parameters (keys, tokens) are left out.
 
-![report.html opened from disk](docs/images/report-html.png)
+![report.html opened from disk](https://raw.githubusercontent.com/Danielraj5605/Ghost-api/main/docs/images/report-html.png)
 
 ---
 
