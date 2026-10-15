@@ -90,16 +90,37 @@ def is_replayable(raw: RawRequest) -> bool:
     if method in ("GET", "HEAD"):
         return True
     if method == "POST" and words & READ_WORDS:
-        return not (raw.body and _MUTATION_RE.search(_graphql_query(raw.body)))
+        return not raw.body or _graphql_reads_only(raw.body)
     return False
 
 
-def _graphql_query(body: str) -> str:
+GRAPHQL_READ_NAME = re.compile(
+    r"^(get|list|search|fetch|find|load|query|read|lookup|browse|view|show|count)", re.I
+)
+
+
+def _graphql_reads_only(body: str) -> bool:
+    """True when every GraphQL operation in the body only reads. A batch (a list) is
+    checked item by item. A persisted query has no text to check: it counts as reading only
+    when its name says so (getUser, ListOrders...)."""
     try:
         data = json.loads(body)
     except ValueError:
-        return body
-    return str(data.get("query", "")) if isinstance(data, dict) else ""
+        return not _MUTATION_RE.search(body)
+    operations = data if isinstance(data, list) else [data]
+    for op in operations:
+        if not isinstance(op, dict):
+            return False
+        query = str(op.get("query") or "")
+        if query:
+            if _MUTATION_RE.search(query):
+                return False
+            continue
+        name = str(op.get("operationName") or "")
+        persisted = "extensions" in op or name  # only a hash and a name, no query text
+        if persisted and not GRAPHQL_READ_NAME.match(name):
+            return False
+    return True
 
 
 def with_overrides(

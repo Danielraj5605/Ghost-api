@@ -290,3 +290,27 @@ def test_required_evidence_explains_a_200_with_a_different_response() -> None:
     assert _against(normal, ReplayResult(200, {"items": [3], "page": 2})) == "HTTP 200, 1 record"
     assert _against(normal, ReplayResult(403, {"error": "forbidden"})) == "HTTP 403"
     assert "a list of 3" in _against(normal, ReplayResult(200, [1, 2, 3]))
+
+
+@pytest.mark.parametrize(
+    ("body", "ok"),
+    [
+        ({"query": "query Q { me { id } }"}, True),
+        ({"query": "mutation M { delete(id: 1) }"}, False),
+        ([{"query": "query A { a }"}, {"query": "mutation B { b }"}], False),  # batch
+        ([{"query": "query A { a }"}, {"query": "{ b }"}], True),
+        (
+            {"operationName": "GetUser", "extensions": {"persistedQuery": {"sha256Hash": "ab"}}},
+            True,
+        ),
+        (
+            {"operationName": "UpdateUser", "extensions": {"persistedQuery": {"sha256Hash": "cd"}}},
+            False,
+        ),
+        ({"extensions": {"persistedQuery": {"sha256Hash": "ef"}}}, False),  # no name at all
+        ({"q": "dune", "page": 2}, True),  # an ordinary search body
+    ],
+)
+def test_graphql_bodies_are_replayed_only_when_they_read(body: Any, ok: bool) -> None:
+    request = RawRequest("POST", "https://shop.test/graphql", {}, json.dumps(body))
+    assert is_replayable(request) is ok
