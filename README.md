@@ -664,13 +664,36 @@ one site (`ghost-api refresh quotes.toscrape.com`); with several, Ghost API list
 
 ```
 output/quotes.toscrape.com/scroll/
-|-- quotes_toscrape_client.py        # The client class
+|-- quotes_toscrape_client.py        # The client: sync and async classes, typed errors
 |-- models.py                        # Pydantic data models
 |-- test_quotes_toscrape_client.py   # Live tests (run automatically by `run` and `verify`)
-|-- openapi.yaml                     # OpenAPI 3.1 spec
+|-- package/python/                  # The same client as an installable, typed package
+|-- package/typescript/              # (with --lang typescript) package.json, tsconfig, src/
+|-- openapi.yaml                     # OpenAPI 3.1 spec (imports into Postman, Bruno, Insomnia)
 |-- report.md                        # Endpoints, confidence, evidence, reasoning log
 +-- report.html                      # The same and more, as one shareable offline page
 ```
+
+**Use the client the way you prefer.** Copy the loose files into a project, or install the
+package (`pip install output/quotes.toscrape.com/scroll/package/python`, or
+`npm install .../package/typescript`); the import is the same either way. Each package has a
+README with every method, a `curl` command per endpoint, and the error types. Generated code
+passes `mypy --strict` and `tsc --strict`.
+
+```python
+from quotes_toscrape_client import AsyncQuotesToscrapeClient, QuotesToscrapeNotFoundError
+
+async with AsyncQuotesToscrapeClient() as api:     # same methods as the sync client
+    async for page in api.iter_get_quotes(max_pages=3):
+        ...
+```
+
+Errors are typed: catch `QuotesToscrapeError` for any failure, or `...AuthError` (401/403),
+`...NotFoundError` (404), `...RateLimitError` (429) or `...ServerError` (5xx) for one kind.
+
+**Work offline.** `ghost-api mock quotes.toscrape.com/scroll` serves the captured replies at
+the same paths on `http://127.0.0.1:8901`: point a front end or a test at it, with no traffic
+to the real site.
 
 Excerpt from a real `report.md`:
 

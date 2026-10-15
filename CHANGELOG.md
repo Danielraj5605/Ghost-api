@@ -24,6 +24,12 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - SECURITY.md, CI (Linux and Windows, Python 3.11 and 3.13, frontend, wheel contents),
   `requirements.lock`, stable error codes.
 
+- Generated clients: an async Python client next to the sync one, typed errors (auth, not
+  found, rate limit, server) in Python and TypeScript, and installable packages in
+  `package/python` and `package/typescript` with a README and curl examples. Python output
+  passes `mypy --strict`.
+- `ghost-api mock SITE`: a local copy of a site's API from captured replies.
+
 ### Changed
 - The package is published as `ghost-api-cli` (the name `ghost-api` was taken on PyPI).
   The command is still `ghost-api`.

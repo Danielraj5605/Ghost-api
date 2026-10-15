@@ -6,6 +6,7 @@ Tests that need Node.js or the TypeScript compiler are skipped when those are mi
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -182,6 +183,13 @@ def site(base: str) -> tuple[list[Endpoint], list[CapturedRequest], list[RawRequ
     return eps, reqs, raws
 
 
+def client_class(source: str) -> str:
+    """The client's class name (the error classes come first in the file)."""
+    match = re.search(r"export class (\w+Client) \{", source)
+    assert match is not None
+    return match[1]
+
+
 def spec_for(base: str, header_known: bool = True) -> ClientSpec:
     eps, reqs, _ = site(base)
     if header_known:
@@ -239,7 +247,7 @@ def test_generated_typescript_passes_tsc_strict(tmp_path: Path) -> None:
 def test_generated_typescript_runs_against_a_live_server(shop: str, tmp_path: Path) -> None:
     result = write_typescript(spec_for(shop), tmp_path)
     module = result.client_path.name
-    cls = result.client_path.read_text(encoding="utf-8").split("export class ")[2].split(" ")[0]
+    cls = client_class(result.client_path.read_text(encoding="utf-8"))
     cred_env = spec_for(shop).credentials[0].env
     script = tmp_path / "check.ts"
     script.write_text(
@@ -281,7 +289,7 @@ def test_user_agent_is_sent_in_node_but_not_promised_in_browsers(tmp_path: Path)
     result = write_typescript(spec_for("http://127.0.0.1:1"), tmp_path)
     module = result.client_path.name
     source = result.client_path.read_text(encoding="utf-8")
-    cls = source.split("export class ")[2].split(" ")[0]
+    cls = client_class(source)
     assert "browsers don't let code set the User-Agent" in source
     script = tmp_path / "ua.ts"
     script.write_text(

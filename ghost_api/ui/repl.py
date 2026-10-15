@@ -62,6 +62,8 @@ COMMANDS = [
             cli="generate", needs_site=True),
     Command("/serve", "/serve [SITE]", "Serve sites as a local REST API (Ctrl+C stops it)",
             cli="serve"),
+    Command("/mock", "/mock [SITE]", "Offline copy of the site's API (Ctrl+C stops it)",
+            cli="mock", needs_site=True),
     Command("/ui", "/ui", "Open the web dashboard (Ctrl+C stops it)", cli="ui"),
     Command("/inspect", "/inspect [SITE] [--run N]", "What's stored about a site or a run",
             cli="inspect"),

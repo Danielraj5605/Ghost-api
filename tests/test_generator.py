@@ -1,6 +1,7 @@
 """Generator tests: naming, models, spec rules, rendering, and running generated code."""
 
 import importlib
+import importlib.util
 import json
 import sys
 from collections.abc import Iterator
@@ -369,6 +370,60 @@ def test_generated_errors_and_retries(generated: ModuleType) -> None:
         api.get_items()
     assert err.value.status == 401 and err.value.body == {"error": "nope"}
     assert calls["n"] == 2  # retried the 503 once, then failed on the 401
+
+
+def test_generated_errors_are_typed(generated: ModuleType) -> None:
+    def status(code: int) -> Any:
+        return generated.ShopTestClient(
+            api_key="k",
+            max_requests_per_second=0,
+            max_retries=0,
+            http_client=httpx.Client(
+                transport=httpx.MockTransport(lambda _r: httpx.Response(code, json={}))
+            ),
+        )
+
+    for code, name in [
+        (401, "ShopTestAuthError"),
+        (403, "ShopTestAuthError"),
+        (404, "ShopTestNotFoundError"),
+        (429, "ShopTestRateLimitError"),
+        (503, "ShopTestServerError"),
+    ]:
+        with pytest.raises(getattr(generated, name)) as err:
+            status(code).get_items()
+        assert isinstance(err.value, generated.ShopTestError) and err.value.status == code
+
+
+def test_generated_async_client_matches_the_sync_one(generated: ModuleType) -> None:
+    import asyncio
+
+    async def main() -> tuple[Any, list[int]]:
+        async with generated.AsyncShopTestClient(
+            api_key="fake-removed",
+            max_requests_per_second=0,
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(fake_shop)),
+        ) as api:
+            item = await api.get_item(id=12)
+            pages = [p.page async for p in api.iter_get_items()]
+        return item, pages
+
+    item, pages = asyncio.run(main())
+    assert item.maker.name == "m" and pages == [1, 2, 3]
+
+
+@pytest.mark.skipif(importlib.util.find_spec("mypy") is None, reason="mypy not installed")
+def test_generated_python_passes_mypy_strict(tmp_path: Path) -> None:
+    import subprocess
+
+    result = write(spec_for(), tmp_path)
+    loose = [result.client_path.name, "models.py", result.tests_path.name]
+    proc = subprocess.run(
+        [sys.executable, "-m", "mypy", "--strict", "--ignore-missing-imports",
+         "--no-incremental", *loose],
+        cwd=tmp_path, capture_output=True, text=True, timeout=300,
+    )  # fmt: skip
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_generate_client_end_to_end_with_llm_names(tmp_path: Path) -> None:

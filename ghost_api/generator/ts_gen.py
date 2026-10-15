@@ -219,6 +219,9 @@ def write_typescript(spec: ClientSpec, out_dir: Path) -> GeneratedClient:
         (out_dir / name).write_text(source, encoding="utf-8", newline="\n")
     module = module_name(spec)
     client = out_dir / f"{module}.ts"
+    from ghost_api.generator.package import typescript_package  # it imports this module
+
+    typescript_package(spec, module, files[f"{module}.ts"], out_dir)
     return GeneratedClient(
         directory=out_dir,
         module=module,

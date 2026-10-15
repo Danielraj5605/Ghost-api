@@ -163,6 +163,25 @@ class ClientSpec:
         return self.class_name.removesuffix("Client") + "Error"
 
     @property
+    def error_classes(self) -> dict[str, str]:
+        """Typed errors, each a subclass of `error_class`: kind -> class name."""
+        stem = self.class_name.removesuffix("Client")
+        return {
+            "auth": f"{stem}AuthError",  # 401, 403
+            "not_found": f"{stem}NotFoundError",  # 404
+            "rate_limit": f"{stem}RateLimitError",  # 429
+            "server": f"{stem}ServerError",  # 5xx
+        }
+
+    @property
+    def async_class(self) -> str:
+        return f"Async{self.class_name}"
+
+    @property
+    def reserved_names(self) -> set[str]:
+        return {self.class_name, self.async_class, self.error_class, *self.error_classes.values()}
+
+    @property
     def model_names(self) -> list[str]:
         return [m.name for m in self.models]
 
@@ -193,7 +212,7 @@ def build_spec(
     for key, req in zip(keys, requests, strict=False):
         samples[key].append(req)
 
-    builder = ModelBuilder(reserved_names={class_name, spec.error_class})
+    builder = ModelBuilder(reserved_names=spec.reserved_names)
     env_prefix = snake(class_name.removesuffix("Client")).upper()
     creds: dict[tuple[str, str], CredentialSpec] = {}
 

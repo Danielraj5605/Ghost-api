@@ -1056,6 +1056,42 @@ def serve(
 
 
 @app.command()
+def mock(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    port: Annotated[int, typer.Option(help="Port on this computer.")] = 8901,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Serve a local copy of a site's API from captured replies: work offline, test
+    front ends, never touch the real site."""
+    import uvicorn
+
+    from ghost_api.serve.mock import build_routes, create_mock_app
+
+    with Store(_need_db(db)) as store:
+        domain = _site(store, domain)
+        routes = build_routes(store, domain)
+    if not routes:
+        console.print(f"No captured replies for {domain}. Run `ghost-api run` first.")
+        raise typer.Exit(code=exitcodes.FAILED)
+    base = f"http://127.0.0.1:{port}"
+    if _options["json"]:
+        json_out(
+            {"site": domain, "base_url": base,
+             "routes": [f"{r.endpoint.method} {r.endpoint.path_template}" for r in routes]}
+        )  # fmt: skip
+    console.print(f"[bold {ACCENT}]◆ Mock of {domain}[/]  {base}  (captured replies, no traffic)")
+    for r in routes:
+        console.print(
+            f"  {r.endpoint.method:<6} {base}{r.endpoint.path_template}"
+            f"  [dim]{len(r.samples)} repl{'y' if len(r.samples) == 1 else 'ies'}[/]"
+        )
+    console.print("[dim]Point your client's base URL here. Local only. Ctrl+C to stop.[/]")
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    uvicorn.run(create_mock_app(routes, domain, hosts), host="127.0.0.1", port=port,
+                log_level="warning")  # fmt: skip
+
+
+@app.command()
 def mcp(
     sites: Annotated[
         list[str] | None, typer.Argument(help="Sites to offer (default: all stored sites).")
