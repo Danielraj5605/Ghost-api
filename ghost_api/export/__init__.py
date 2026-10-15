@@ -14,6 +14,11 @@ from ghost_api.generator.naming import NamingPlan, apply_plan
 from ghost_api.generator.spec import ClientSpec
 from ghost_api.memory.store import Store
 
+__all__ = [
+    "Exports",
+    "write_exports",
+]
+
 
 @dataclass
 class Exports:
@@ -33,7 +38,7 @@ def write_exports(
     run = store.get_run(run_id)
     if run is None:
         raise ValueError(f"run {run_id} not found")
-    endpoints = store.load_endpoints(domain, store.latest_endpoint_run(domain))
+    endpoints = store.current_endpoints(domain)
     plan = None
     stored_plan = store.load_naming_plan(domain)
     if stored_plan:

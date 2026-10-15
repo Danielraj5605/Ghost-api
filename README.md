@@ -142,6 +142,24 @@ const page = await api.getQuotes(); // Promise<QuotesResponse>
 for await (const p of api.iterGetQuotes({ maxPages: 3 })) console.log(p.page);
 ```
 
+The TypeScript client is made for **Node 18+** (servers, scripts, serverless functions). In a
+web page it mostly won't work: browsers block reading another site's replies unless that site
+allows it (CORS), and they don't let code set the identifying User-Agent header. For a web
+app, call the client from your own small server and let the page call that:
+
+```ts
+// server.ts (Node): the page calls /api/quotes on your server, your server calls the site.
+import { createServer } from "node:http";
+import { QuotesToscrapeClient } from "./quotes_toscrape_client.ts";
+
+const api = new QuotesToscrapeClient();
+createServer(async (req, res) => {
+  if (req.url !== "/api/quotes") return void res.writeHead(404).end();
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(await api.getQuotes()));
+}).listen(3000);
+```
+
 A harder case: on `hn.algolia.com` the agent switched the search filter to "Comments", found
 that the real API is a POST to Algolia's servers (a third-party domain), and the prober
 confirmed that paging works in the JSON body and that the `x-algolia-api-key` URL parameter
@@ -294,7 +312,8 @@ Ghost API improves with use:
   bank details, and reports which endpoints expose them
 
 - **TypeScript client** too (`--lang typescript`): interfaces, a fetch-based client for Node 18+
-  and browsers, async page iterators, and Node tests; passes `tsc --strict`
+  (for web pages, call it from your own server), async page iterators, and Node tests; passes
+  `tsc --strict`
 
 **Not yet:** GraphQL/WebSocket APIs, automatic change detection.
 
@@ -495,6 +514,9 @@ ghost-api verify quotes.toscrape.com
 # Check that your LLM keys work
 ghost-api doctor
 
+# Delete everything stored about a site (asks first; see SECURITY.md)
+ghost-api forget quotes.toscrape.com
+
 # Download data (no code): list what's available, then fetch all pages to a file
 ghost-api fetch quotes.toscrape.com
 ghost-api fetch quotes.toscrape.com list_quotes --pages 10 --format xlsx
@@ -609,8 +631,9 @@ ghost-api/
 |   |-- config.py           # Settings and budgets
 |   |-- errors.py           # Plain-language error messages
 |   |-- net.py              # robots.txt and rate limiting
+|   |-- netguard.py         # Network boundary: no private addresses, reply size limits
 |   |-- agent/              # Exploration loop, prompts, actions
-|   |-- browser/            # Playwright control, page snapshots, safety filter
+|   |-- browser/            # Playwright control, snapshots, safety filter, egress proxy, request gate
 |   |-- capture/            # Network recording, noise filters, redaction
 |   |-- analysis/           # URL templates, schemas, detectors (pagination, auth, bots)
 |   |-- probe/              # Safe replays and hypothesis testing
@@ -651,8 +674,14 @@ Ghost API is designed to cost **$0**:
 
 Ghost API is built to behave like a polite, careful developer:
 
-- Respects `robots.txt` by default
-- Rate-limits its own requests (1 request per second by default)
+- Respects `robots.txt` by default, for its own requests and for the pages and API calls the
+  browser makes for the site (checked before they are sent)
+- Rate-limits its own requests and the site's API calls in the browser (1 request per second
+  by default)
+- Never lets a website steer it to your computer or local network: every browser connection,
+  redirects included, goes through a local proxy that refuses private addresses (unless the
+  site you gave it is itself local)
+- Stops reading any reply bigger than 5 MB
 - Never tries to bypass CAPTCHAs or bot protection; it detects them and stops
 - Never clicks destructive or purchase actions (delete, buy, pay)
 - Never stores passwords; for logins, you log in by hand in the browser window
@@ -670,6 +699,9 @@ Also:
   privately instead of collecting it.
 - **Watches and servers keep the same manners:** read-only, one request per second per site,
   robots.txt respected, checks no more often than every 5 minutes.
+- **Your data stays on your machine** except what the AI agent sends to your LLM provider.
+  [SECURITY.md](SECURITY.md) lists what is stored, what is sent where, and how to delete it:
+  `ghost-api forget SITE` removes everything stored about a site.
 
 ---
 

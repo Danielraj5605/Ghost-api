@@ -30,11 +30,11 @@ mcp = ["mcp>=1.2"]          # `ghost-api mcp`: sites as tools for AI assistants
 notify = ["plyer>=2.1"]     # desktop notifications for `ghost-api watch`
 dev = [
     "pytest>=8", "ruff>=0.6", "mypy>=1.11", "openapi-spec-validator>=0.7", "types-PyYAML",
-    "psutil>=5.9", "types-psutil",
+    "psutil>=5.9", "types-psutil", "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
-ghost-api = "ghost_api.cli:app"
+ghost-api = "ghost_api.cli:entry"
 
 [tool.setuptools.packages.find]
 include = ["ghost_api*"]

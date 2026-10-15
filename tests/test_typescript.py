@@ -277,6 +277,37 @@ console.log(JSON.stringify({{ first: page.items[0].itemName, pages, item: item.c
 
 
 @needs_node
+def test_user_agent_is_sent_in_node_but_not_promised_in_browsers(tmp_path: Path) -> None:
+    result = write_typescript(spec_for("http://127.0.0.1:1"), tmp_path)
+    module = result.client_path.name
+    source = result.client_path.read_text(encoding="utf-8")
+    cls = source.split("export class ")[2].split(" ")[0]
+    assert "browsers don't let code set the User-Agent" in source
+    script = tmp_path / "ua.ts"
+    script.write_text(
+        f"""import {{ {cls} }} from "./{module}";
+const seen: (string | undefined)[] = [];
+const fake = (async (_url: URL, init: RequestInit) => {{
+  seen.push((init.headers as Record<string, string>)["User-Agent"]);
+  return new Response('{{"items": [], "page": 1, "has_next": false}}', {{ status: 200 }});
+}}) as unknown as typeof fetch;
+const api = new {cls}({{ fetch: fake, maxRequestsPerSecond: 0, apiKey: "k" }});
+await api.getItems();
+(globalThis as {{ document?: unknown }}).document = {{}};  // as in a web page
+await api.getItems();
+console.log(JSON.stringify(seen));
+""",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [NODE or "node", script.name], cwd=tmp_path, capture_output=True, text=True, timeout=120
+    )
+    assert proc.returncode == 0, proc.stderr
+    node_ua, browser_ua = json.loads(proc.stdout.strip().splitlines()[-1].replace("null", '"-"'))
+    assert "GhostAPI/" in node_ua and browser_ua == "-"
+
+
+@needs_node
 def test_generated_node_tests_pass_through_the_runner(shop: str, tmp_path: Path) -> None:
     result = write_typescript(spec_for(shop), tmp_path)
     outcomes = run_node_tests(result.tests_path, {spec_for(shop).credentials[0].env: "fake-removed"})

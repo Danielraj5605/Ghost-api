@@ -42,7 +42,7 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 
 from ghost_api import __version__, watch
-from ghost_api.config import SUPPORTED_LANGUAGES
+from ghost_api.config import SUPPORTED_LANGUAGES, state_dir
 from ghost_api.errors import friendly_error
 from ghost_api.events import EventBus, Notice
 from ghost_api.export import tabular
@@ -77,7 +77,9 @@ GatewayFactory = Callable[[int], LLMGateway | None]
 
 
 def default_gateway(max_calls: int) -> LLMGateway | None:
-    gateway = LLMGateway(default_providers(), max_calls=max_calls)
+    gateway = LLMGateway(
+        default_providers(), max_calls=max_calls, cooldown_file=state_dir() / "cooldowns.json"
+    )
     return gateway if gateway.providers else None
 
 
@@ -522,8 +524,7 @@ def create_app(
         """The user checked this endpoint only reads (e.g. a POST search): allow calling it."""
         domain = _site_name(domain)
         with store() as s:
-            run_id = s.latest_endpoint_run(domain)
-            keys = {e.key for e in s.load_endpoints(domain, run_id)} if run_id else set()
+            keys = {e.key for e in s.current_endpoints(domain)}
             if call.endpoint not in keys:
                 raise HTTPException(404, "Unknown endpoint")
             if call.allowed:

@@ -81,3 +81,14 @@ def test_output_that_cannot_show_symbols_does_not_crash() -> None:
     utf8 = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
     safe_output(utf8)
     assert utf8.errors == "strict"  # UTF-8 output is left alone
+
+
+def test_errors_have_stable_codes() -> None:
+    from ghost_api.errors import error_code
+    from ghost_api.netguard import PolicyDenied, ResponseTooLarge
+
+    assert error_code(PlaywrightError("net::ERR_NAME_NOT_RESOLVED")) == "dns-failed"
+    assert error_code(sqlite3.OperationalError("database is locked")) == "database-locked"
+    assert error_code(PolicyDenied("blocked 10.0.0.1")) == "network-denied"
+    assert error_code(ResponseTooLarge("too big")) == "response-too-large"
+    assert error_code(ValueError("something new")) == "unexpected"

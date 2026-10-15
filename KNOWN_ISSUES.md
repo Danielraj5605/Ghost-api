@@ -6,7 +6,7 @@ what goes wrong, how it was found, and a suggested fix.
 **Priority:** P1 = safety or wrong results, fix first · P2 = makes sites or features fail ·
 P3 = quality and polish · Env = outside the code.
 
-Last updated: 2026-10-07 (after the UI work).
+Last updated: 2026-10-15 (network boundary, audit fixes).
 
 ---
 
@@ -29,6 +29,9 @@ Last updated: 2026-10-07 (after the UI work).
   Add tests for these exact URLs.
 
 ### 2. The agent's "goal covered" judgement can be too generous
+- **Partly fixed (2026-10-15):** `goal-covered` now also needs the agent's `missing` field to
+  be empty and at least one endpoint to be found; otherwise the run ends as `finished`.
+  Mapping each part of the goal to a field (below) is still to do.
 - **Problem:** The agent can declare the goal covered when it isn't. On Wikipedia, the goal
   was "search for articles and get article summaries"; it finished with `goal-covered`
   although its own lesson said the endpoint returns titles, not summaries.
@@ -296,6 +299,30 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
   the README and dashboard say to pick a long, unguessable topic.
 - **Fix:** Support ntfy access tokens (`ntfy:topic?token=...`) or a self-hosted server
   (`GHOST_API_NTFY_URL`, already supported).
+
+### 38. Third-party requests in the browser are not checked against their robots.txt
+- **Problem:** The request gate checks robots.txt for page loads and the site's own API calls.
+  Calls a page makes to other companies' servers (analytics, maps, CDNs) load as in any
+  browser; only the private-address rule applies to them.
+- **Why:** Ghost API didn't choose them, and fetching every third party's robots.txt would
+  add traffic. Documented in SECURITY.md. **Fix if needed:** an option to block third-party
+  API calls that robots.txt disallows (useful when the real API is on another domain, like
+  Algolia for hn.algolia.com).
+
+### 39. Direct requests resolve host names twice
+- **Problem:** The browser's proxy connects to the exact address it checked. Direct requests
+  (httpx: robots.txt, endpoint checks, fetch, watch) check the name, then httpx resolves it
+  again, so a DNS-rebinding server could switch to a private address in between.
+- **Mitigation:** endpoint checks never follow redirects; robots.txt redirects are checked per
+  hop. **Fix:** an httpx transport that connects to the checked address (keeping the host
+  name for TLS).
+
+### 40. No per-run permissions summary yet
+- **Problem:** improvement.md asks for a summary of each run's hosts, third-party hosts,
+  robots checks, request budgets and exceptions. Blocked requests and local target mode are
+  in the run log, but there is no single summary in the report.
+- **Fix:** collect the gate's and proxy's decisions into the run record and add a
+  "Network and permissions" section to the report.
 
 ---
 

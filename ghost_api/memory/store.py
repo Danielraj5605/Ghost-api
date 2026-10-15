@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -186,6 +187,7 @@ MIGRATIONS = (
     ("endpoints", "replayable", "INTEGER"),
     ("endpoints", "status_note", "TEXT NOT NULL DEFAULT ''"),
     ("requests", "personal", "TEXT NOT NULL DEFAULT '[]'"),
+    ("endpoints", "gone_run_id", "INTEGER"),
 )
 
 
@@ -223,16 +225,42 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _template_re(template: str) -> re.Pattern[str]:
+    parts = re.split(r"\{[^}]*\}", template)
+    return re.compile("[^/]+".join(re.escape(p) for p in parts) + r"\Z")
+
+
+def _same_endpoint(old: Endpoint, new: Endpoint) -> bool:
+    """`/api/quotes/1` (an early, literal template) and `/api/quotes/{id}` are one endpoint."""
+    if (old.method, old.host) != (new.method, new.host):
+        return False
+    a, b = old.path_template.split("?")[0], new.path_template.split("?")[0]
+    return bool(_template_re(b).match(a) or _template_re(a).match(b))
+
+
+class StoreError(Exception):
+    """The database file can't be used (damaged, or not a Ghost API database)."""
+
+
 class Store:
     def __init__(self, path: Path | str) -> None:
         # check_same_thread=False: the dashboard opens a store per request; WAL lets it
         # read while a run (another thread) writes; timeout waits out short locks.
         self.conn = sqlite3.connect(str(path), timeout=15, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.executescript(SCHEMA)
-        self._migrate()
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            self.conn.executescript(SCHEMA)
+            self._migrate()
+        except sqlite3.DatabaseError as exc:
+            self.conn.close()
+            if "locked" in str(exc):
+                raise
+            raise StoreError(
+                f"{path} is damaged or is not a Ghost API database ({exc}). Move it aside "
+                "(or use --db to pick another file) and Ghost API will start a fresh one."
+            ) from exc
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was first created."""
@@ -244,6 +272,45 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
+
+    # --- deleting data ---
+
+    def forget_site(self, domain: str) -> tuple[dict[str, int], list[int]]:
+        """Delete everything stored for one site. Returns rows deleted per table and the
+        deleted run ids (their screenshot folders can then be removed)."""
+        runs = [
+            r["id"] for r in self.conn.execute("SELECT id FROM runs WHERE domain = ?", (domain,))
+        ]
+        watches = [
+            r["id"] for r in self.conn.execute("SELECT id FROM watches WHERE domain = ?", (domain,))
+        ]
+        counts: dict[str, int] = {}
+
+        def delete(table: str, column: str, values: Sequence[object]) -> None:
+            if values:
+                marks = ", ".join("?" * len(values))
+                sql = f"DELETE FROM {table} WHERE {column} IN ({marks})"
+                counts[table] = counts.get(table, 0) + self.conn.execute(sql, values).rowcount
+
+        endpoint_ids = [
+            r["id"]
+            for r in self.conn.execute("SELECT id FROM endpoints WHERE domain = ?", (domain,))
+        ]
+        with self.conn:
+            for table in ("requests", "agent_steps", "hypotheses", "run_events", "lessons"):
+                delete(table, "run_id", runs)
+            delete("watch_items", "watch_id", watches)
+            delete("watch_changes", "watch_id", watches)
+            delete("schemas", "endpoint_id", endpoint_ids)
+            for table in ("lessons", "endpoints", "naming_plans", "allowed_endpoints", "watches"):
+                delete(table, "domain", [domain])
+            delete("runs", "id", runs)
+        return {k: v for k, v in counts.items() if v}, runs
+
+    def clear_llm_cache(self) -> int:
+        """Remove cached LLM answers (they contain text from the pages that were explored)."""
+        with self.conn:
+            return self.conn.execute("DELETE FROM llm_cache").rowcount
 
     def __enter__(self) -> Store:
         return self
@@ -395,6 +462,7 @@ class Store:
                        example_urls = excluded.example_urls,
                        third_party = excluded.third_party,
                        last_run_id = excluded.last_run_id,
+                       gone_run_id = NULL,
                        updated_at = excluded.updated_at""",
                 (*values, domain, ep.method, ep.host, ep.path_template),
             )
@@ -425,6 +493,43 @@ class Store:
             "SELECT MAX(last_run_id) AS run_id FROM endpoints WHERE domain = ?", (domain,)
         ).fetchone()
         return int(row["run_id"]) if row and row["run_id"] is not None else None
+
+    def current_endpoints(self, domain: str) -> list[Endpoint]:
+        """What is known about a site now: the latest run's endpoints, plus endpoints found
+        by earlier runs (another goal, say) unless a refresh looked for them and they were
+        gone, or the latest run found the same endpoint under a better template."""
+        latest_run = self.latest_endpoint_run(domain)
+        if latest_run is None:
+            return []
+        latest = self.load_endpoints(domain, latest_run)
+        latest_keys = {e.key for e in latest}
+        gone = {
+            (r["method"], r["host"], r["url_template"])
+            for r in self.conn.execute(
+                "SELECT method, host, url_template FROM endpoints"
+                " WHERE domain = ? AND gone_run_id IS NOT NULL",
+                (domain,),
+            )
+        }
+        merged = list(latest)
+        for ep in self.load_endpoints(domain):
+            if ep.key in latest_keys or (ep.method, ep.host, ep.path_template) in gone:
+                continue
+            if not any(_same_endpoint(ep, new) for new in latest):
+                merged.append(ep)
+        return sorted(merged, key=lambda e: (e.host, e.path_template, e.method))
+
+    def mark_gone(self, domain: str, keys: Iterable[str], run_id: int) -> None:
+        """A refresh looked for these endpoints and did not see them again."""
+        wanted = set(keys)
+        for ep in self.load_endpoints(domain):
+            if ep.key in wanted:
+                self.conn.execute(
+                    "UPDATE endpoints SET gone_run_id = ? WHERE domain = ? AND method = ?"
+                    " AND host = ? AND url_template = ?",
+                    (run_id, domain, ep.method, ep.host, ep.path_template),
+                )
+        self.conn.commit()
 
     def load_endpoints(self, domain: str, run_id: int | None = None) -> list[Endpoint]:
         """All endpoints ever seen for a domain, or only those seen in `run_id`."""

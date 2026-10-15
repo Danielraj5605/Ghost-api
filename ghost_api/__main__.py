@@ -1,5 +1,5 @@
 """Allow `python -m ghost_api ...`."""
 
-from ghost_api.cli import app
+from ghost_api.cli import entry
 
-app()
+entry()

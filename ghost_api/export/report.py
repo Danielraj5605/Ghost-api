@@ -25,7 +25,7 @@ def build_report(store: Store, domain: str, run_id: int, spec: ClientSpec | None
     run = store.get_run(run_id)
     if run is None:
         raise ValueError(f"run {run_id} not found")
-    endpoints = store.load_endpoints(domain, store.latest_endpoint_run(domain))
+    endpoints = store.current_endpoints(domain)
     hypotheses = store.hypotheses_for_run(run_id)
     steps = store.steps_for_run(run_id)
     lessons = store.lessons_for(domain, limit=10)

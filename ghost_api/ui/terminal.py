@@ -10,6 +10,7 @@ Two modes:
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -79,6 +80,17 @@ def method_text(method: str) -> Text:
 
 # Set by the interactive session (ui/repl.py), so hints name its /commands.
 SESSION = {"active": False}
+# How far the current run got, for the message shown when it is stopped at once.
+PROGRESS: dict[str, Any] = {"site": "", "step": 0, "endpoints": 0}
+
+
+def stop_message(site: str = "") -> str:
+    """'Stopped on SITE after step 6. Found 3 endpoints so far; what was captured is saved.'"""
+    where = f" on {PROGRESS['site'] or site}" if (PROGRESS["site"] or site) else ""
+    step = f" after step {PROGRESS['step']}" if PROGRESS["step"] else ""
+    count = PROGRESS["endpoints"]
+    found = f"Found {count} endpoint{'s' if count != 1 else ''} so far; " if count else ""
+    return f"Stopped{where}{step}. {found}what was captured is saved."
 
 
 def _next_steps() -> str:
@@ -92,13 +104,30 @@ def file_url(path: str | Path) -> str:
     return Path(path).resolve().as_uri()
 
 
+def _hyperlinks_supported() -> bool:
+    return bool(
+        os.environ.get("WT_SESSION")
+        or os.environ.get("TERM_PROGRAM") in {"vscode", "iTerm.app", "WezTerm"}
+        or os.environ.get("GHOST_API_SHORT_LINKS")
+    )
+
+
 def file_link(path: str | Path, label: str | None = None) -> Text:
     """A clickable link to a local file (Ctrl+click in Windows Terminal, VS Code...).
-    The text is the full file:/// URL, so terminals without links can still copy it."""
+
+    Terminals that understand hyperlinks show a short relative path; others (the classic
+    cmd window) show the full file:/// URL, which they can still open."""
     if not str(path):
         return Text("")
     url = file_url(path)
-    return Text(label or url, style=f"link {url} underline")
+    if label is None and not _hyperlinks_supported():
+        label = url
+    if label is None:
+        try:
+            label = str(Path(path).resolve().relative_to(Path.cwd()))
+        except ValueError:
+            label = str(Path(path).name)
+    return Text(label, style=f"link {url} underline")
 
 
 def endpoint_table(endpoints: list[dict[str, Any]], title: str | None = None) -> Table:
@@ -190,6 +219,7 @@ class TerminalRenderer:
     def _on_run_started(self, e: RunStarted) -> None:
         self.domain = e.domain
         self.started = time.monotonic()
+        PROGRESS.update(site=e.domain, step=0, endpoints=0)
         if self.plain:
             self._print(f"[bold]Goal:[/] {e.goal}")
             self._print("[bold]Exploring site...[/]")
@@ -234,6 +264,7 @@ class TerminalRenderer:
             self._print(f"      [dim cyan]{tag}{e.method} {e.status} {_short(e.url, 70)}[/]")
 
     def _on_step(self, e: AgentStep) -> None:
+        PROGRESS["step"] = e.step
         args = ", ".join(f"{k}={v!r}" for k, v in e.args.items() if v not in (None, "", False))
         if self.plain:
             self._print(f"[bold]Step {e.step}[/] {e.action}({args})  [dim]{e.thought}[/]")
@@ -262,6 +293,7 @@ class TerminalRenderer:
 
     def _on_endpoints(self, e: EndpointsUpdated) -> None:
         self.endpoints = e.endpoints
+        PROGRESS["endpoints"] = len(e.endpoints)
 
     def _on_hypothesis(self, e: HypothesisTested) -> None:
         mark, style = RESULT_MARK[e.result]
@@ -350,7 +382,7 @@ class TerminalRenderer:
         )
         if self.usage is not None:
             stats.append(
-                f" · LLM {self.usage.answered} calls · {self.usage.tokens / 1000:.1f}k tok · $0.00",
+                f" · LLM {self.usage.answered} calls · {self.usage.tokens / 1000:.1f}k tok",
                 style="dim",
             )
         spinner = Spinner("dots", text=Text(self.activity[:90], style=ACCENT), style=ACCENT)
@@ -415,8 +447,7 @@ class TerminalRenderer:
             u = self.usage
             body.append(
                 Text(
-                    f"LLM     {u.answered} calls · {u.tokens:,} tokens · "
-                    f"{u.cache_hits} cached · $0.00",
+                    f"LLM     {u.answered} calls · {u.tokens:,} tokens · {u.cache_hits} cached",
                     style="dim",
                 )
             )

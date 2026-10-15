@@ -85,7 +85,7 @@ class SiteRuntime:
         run_id = store.latest_endpoint_run(site)
         if run_id is None:
             raise OperationError(f"Nothing stored for {site}. Run `ghost-api run` first.")
-        self.endpoints = store.load_endpoints(site, run_id)
+        self.endpoints = store.current_endpoints(site)
         self.allowed = store.allowed_endpoints(site)
         plan = load_plan(store.load_naming_plan(site))
         _, self.names = apply_plan(plan, self.endpoints, site)

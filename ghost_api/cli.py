@@ -19,7 +19,13 @@ from rich.table import Table
 from rich.text import Text
 
 from ghost_api import __version__, watch
-from ghost_api.config import SUPPORTED_LANGUAGES, Settings, default_db_path, load_env
+from ghost_api.config import (
+    Settings,
+    check_language,
+    default_db_path,
+    load_env,
+    state_dir,
+)
 from ghost_api.events import EventBus, Notice
 from ghost_api.export import tabular, write_exports
 from ghost_api.export.site_data import endpoint_summary
@@ -30,7 +36,7 @@ from ghost_api.llm.doctor import check_providers
 from ghost_api.llm.gateway import LLMGateway
 from ghost_api.llm.providers import default_providers
 from ghost_api.memory.knowledge import load_memory, memory_prompt
-from ghost_api.memory.store import Store
+from ghost_api.memory.store import RunRow, Store, StoreError
 from ghost_api.net import RateLimiter
 from ghost_api.pipeline import (
     RunOptions,
@@ -45,6 +51,7 @@ from ghost_api.pipeline import (
 from ghost_api.probe.replay import ReplayRefused
 from ghost_api.runtime import OperationError, SiteRuntime
 from ghost_api.site import SiteAmbiguous, resolve_site, site_host
+from ghost_api.ui import keys
 from ghost_api.ui.terminal import (
     ACCENT,
     TerminalRenderer,
@@ -73,7 +80,9 @@ def main(
     ctx: typer.Context,
     version: Annotated[
         bool | None,
-        typer.Option("--version", callback=_version, is_eager=True, help="Show version."),
+        typer.Option(
+            "--version", callback=_version, is_eager=True, expose_value=False, help="Show version."
+        ),
     ] = None,
     plain: Annotated[
         bool, typer.Option("--plain", help="Simple line-by-line output (for logs and CI).")
@@ -90,9 +99,20 @@ def main(
         _interactive()
 
 
+def entry() -> None:
+    """The `ghost-api` command: the app, with a plain message for a damaged database."""
+    try:
+        app()
+    except StoreError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise SystemExit(1) from None
+
+
 def safe_output(stream: object) -> None:
     """Never crash on a character the output can't show (e.g. '◆' when output is
     redirected to a file on Windows, which uses cp1252): print a '?' instead."""
+    if stream is None:  # pythonw / no console: nothing to protect
+        return
     encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
     reconfigure = getattr(stream, "reconfigure", None)
     if encoding != "utf8" and reconfigure is not None:
@@ -108,6 +128,8 @@ def _invoke(args: list[str]) -> None:
         console.print("[yellow]Stopped.[/]")
     except typer.Exit:
         pass
+    except StoreError as exc:
+        console.print(f"[red]{exc}[/]")
     except typer.TyperException as exc:  # usage errors: missing argument, unknown option...
         format_message = getattr(exc, "format_message", None)
         message = format_message() if callable(format_message) else str(exc)
@@ -123,9 +145,12 @@ def _interactive() -> None:
         with keys.input_paused():
             return console.input(f"[bold]{question}[/]")
 
+    def has_llm() -> bool:
+        load_env()  # a key added to .env while the session is open counts at once
+        return any(p.api_key for p in default_providers())
+
     repl = Repl(console, _invoke, ask)
-    has_llm = any(p.api_key for p in default_providers())
-    run_session(console, repl, has_llm, history_file=Path.home() / ".ghost-api" / "history.txt")
+    run_session(console, repl, has_llm, history_file=state_dir() / "history.txt")
 
 
 def _renderer() -> TerminalRenderer:
@@ -142,7 +167,9 @@ def _normalize_url(url: str) -> str:
 
 
 def _gateway(max_calls: int, required: bool) -> LLMGateway | None:
-    gateway = LLMGateway(default_providers(), max_calls=max_calls)
+    gateway = LLMGateway(
+        default_providers(), max_calls=max_calls, cooldown_file=state_dir() / "cooldowns.json"
+    )
     if gateway.providers:
         return gateway
     if required:
@@ -155,11 +182,10 @@ def _gateway(max_calls: int, required: bool) -> LLMGateway | None:
 
 
 def _check_lang(lang: str) -> str:
-    if lang not in SUPPORTED_LANGUAGES:
-        raise typer.BadParameter(
-            f"Unsupported language '{lang}'. Supported: {', '.join(SUPPORTED_LANGUAGES)}"
-        )
-    return lang
+    try:
+        return check_language(lang)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _need_db(db: Path | None) -> Path:
@@ -216,6 +242,7 @@ def run(
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
 ) -> None:
     """Explore a website with the AI agent and map its hidden API."""
+    console.print(f"[dim]⏳ Starting run on {url}...[/]")
     try:
         settings = Settings(
             url=_normalize_url(url),
@@ -271,7 +298,8 @@ def run(
                 screens_root=settings.db_path,
                 lang=settings.lang,
             )
-            known = load_memory(store, host)
+            s.stop = s.stop or keys.stop_requested  # Ctrl+C in the session
+            known = load_memory(store, s.site)
             if known is not None:
                 s.memory = memory_prompt(known.endpoints, known.lessons)
                 bus.emit(
@@ -320,6 +348,7 @@ def refresh(
 
     Also continues an interrupted run, since its traffic and endpoints were saved.
     """
+    console.print(f"[dim]⏳ Starting refresh for {domain}...[/]")
     path = _need_db(db)
     lang = _check_lang(lang)
     with Store(path) as store:
@@ -368,6 +397,7 @@ def refresh(
                 lang=lang,
                 site=domain,
             )
+            s.stop = s.stop or keys.stop_requested  # Ctrl+C in the session
             s.memory = memory_prompt(mem.endpoints, mem.lessons)
             started = time.monotonic()
             status, reason = refresh_site(s, mem, max_steps)
@@ -429,7 +459,13 @@ def generate(
 ) -> None:
     """(Re)generate the client for a site from its stored endpoint map."""
     path = _need_db(db)
-    gateway = None if no_llm else LLMGateway(default_providers(), max_calls=3)
+    gateway = (
+        None
+        if no_llm
+        else LLMGateway(
+            default_providers(), max_calls=3, cooldown_file=state_dir() / "cooldowns.json"
+        )
+    )
     if gateway is not None and not gateway.providers:
         gateway = None
     try:
@@ -461,6 +497,8 @@ def verify(
     Uses stored data only. Endpoints that need a key are tested when the key is set in
     the environment (the generated client says which variable).
     """
+    console.print(f"[dim]⏳ Starting verification for {domain}...[/]")
+    started = time.monotonic()
     path = _need_db(db)
     renderer = TerminalRenderer(console, plain=True)
     with Store(path) as store:
@@ -470,7 +508,7 @@ def verify(
         if run_id is None or run_row is None:
             console.print(f"No endpoints stored for {domain}. Run `ghost-api run` first.")
             raise typer.Exit(code=1)
-        endpoints = store.load_endpoints(domain, run_id)
+        endpoints = store.current_endpoints(domain)
         console.print(f"[bold]Verifying the {domain} client against the live API...[/]")
         verifier = Verifier(
             domain,
@@ -495,6 +533,8 @@ def verify(
     console.print(endpoint_table(summaries, f"Endpoints ({len(summaries)})"))
     if report.result is not None:
         print_client(console, client_event(report.result))
+    elapsed = time.monotonic() - started
+    console.print(f"[dim]Verification completed in {elapsed:.1f}s[/]")
     if any(state == "failed" for state, _ in report.statuses.values()):
         raise typer.Exit(code=1)
 
@@ -572,6 +612,8 @@ def fetch(
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Download a site's data as CSV, Excel or JSON, following all pages. No code needed."""
+    console.print(f"[dim]⏳ Fetching data from {domain}...[/]")
+    started = time.monotonic()
     if fmt not in FORMATS:
         console.print(f"--format must be one of: {', '.join(FORMATS)}")
         raise typer.Exit(code=2)
@@ -590,7 +632,12 @@ def fetch(
             if ops:
                 console.print(f"[dim]Example: ghost-api fetch {domain} {ops[0].name}[/]")
             else:
-                console.print("Nothing here can be fetched without the browser.")
+                console.print(
+                    "[yellow]No fetchable endpoints found.[/] This site's endpoints may use "
+                    "authentication or change data, so Ghost API won't call them directly.\n"
+                    "[dim]If you know an endpoint only reads data, re-generate with:\n"
+                    f'  ghost-api generate {domain} --allow "POST /api/search"[/]'
+                )
             return
         try:
             op = rt.operation(operation)
@@ -613,7 +660,9 @@ def fetch(
     stamp = time.strftime("%Y%m%d-%H%M%S")
     target = save_to or out / domain / "data" / f"{op.name}-{stamp}.{fmt}"
     tabular.write(records, target, fmt)
-    console.print(Text(f"Saved {len(records)} rows: ", style="bold green") + file_link(target))
+    elapsed = time.monotonic() - started
+    saved = Text(f"Saved {len(records)} rows in {elapsed:.1f}s: ", style="bold green")
+    console.print(saved + file_link(target))
     if hidden:
         console.print(f"[dim]{hidden} personal values hidden[/]")
 
@@ -774,8 +823,14 @@ def watch_start(
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
     """Keep checking due watches until you press Ctrl+C."""
-    console.print("Checking due watches every minute. Press Ctrl+C to stop.")
     with Store(_need_db(db)) as store:
+        if not store.watches():
+            console.print(
+                "No watches yet, so there is nothing to check. Add one first, e.g.\n"
+                "  ghost-api watch add quotes.toscrape.com get_quotes --every 6h"
+            )
+            raise typer.Exit(code=1)
+        console.print("Checking due watches every minute. Press Ctrl+C to stop.")
         try:
             watch.loop(store, _print_check)
         except KeyboardInterrupt:
@@ -900,8 +955,61 @@ def mcp(
 
 
 @app.command()
+def forget(
+    domain: Annotated[str | None, typer.Argument(help=SITE_HELP)] = None,
+    llm_cache: Annotated[
+        bool, typer.Option("--llm-cache", help="Also clear cached LLM answers (all sites).")
+    ] = False,
+    keep_files: Annotated[
+        bool, typer.Option("--keep-files", help="Keep the output folder and screenshots.")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Don't ask for confirmation.")] = False,
+    out: Annotated[Path, typer.Option(help="Output directory.")] = Path("output"),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Delete what Ghost API stored about a site: runs, captured traffic, endpoints,
+    watches, screenshots and its output folder."""
+    import shutil
+
+    from ghost_api.pipeline import screenshots_dir
+
+    if domain is None and not llm_cache:
+        console.print("Name a site to forget, e.g. ghost-api forget quotes.toscrape.com")
+        raise typer.Exit(code=2)
+    path = _need_db(db)
+    with Store(path) as store:
+        site = _site(store, domain) if domain else None
+        what = f"everything stored for {site}" if site else ""
+        if llm_cache:
+            what += (" and " if what else "") + "the cached LLM answers"
+        if not yes:
+            from ghost_api.ui import keys
+
+            with keys.input_paused():  # normal typing inside the interactive session too
+                sure = typer.confirm(f"Delete {what}? This can't be undone.", default=False)
+            if not sure:
+                raise typer.Exit(code=1)
+        if site:
+            counts, run_ids = store.forget_site(site)
+            rows = sum(counts.values())
+            console.print(f"Deleted {rows} stored row(s) for {site}.")
+            site_out = (out / site).resolve()
+            if not keep_files and rows and site_out.is_relative_to(out.resolve()):
+                folders = [screenshots_dir(path, r) for r in run_ids] + [site_out]
+                for folder in folders:
+                    if folder.is_dir():
+                        shutil.rmtree(folder, ignore_errors=True)
+                        console.print(f"[dim]Removed {folder}[/]")
+        if llm_cache:
+            console.print(f"Cleared {store.clear_llm_cache()} cached LLM answer(s).")
+        store.conn.execute("VACUUM")  # really remove the data from the file
+    console.print("[dim]Copies you made elsewhere (clients, downloads) are not touched.[/]")
+
+
+@app.command()
 def doctor() -> None:
     """Check that each LLM provider in .env answers (uses one tiny call per provider)."""
+    started = time.monotonic()
     table = Table(title="LLM providers")
     for col in ("Provider", "Model", "Key", "Result", "Time"):
         table.add_column(col)
@@ -913,11 +1021,24 @@ def doctor() -> None:
         result = "[green]OK[/]" if r["ok"] else f"[red]failed:[/] {r['detail'][:90]}"
         table.add_row(r["provider"], r["model"], "set", result, f"{r['seconds']:.1f}s")
     console.print(table)
+    elapsed = time.monotonic() - started
     working = sum(r["ok"] for r in rows)
     if not working:
-        console.print("[red]No provider is working.[/] Check the keys in .env.")
+        console.print("[red]No provider is working.[/]")
+        console.print(
+            "\n[bold]How to fix:[/]\n"
+            "  1. Create a file named .env in the folder you run ghost-api from\n"
+            "  2. Add at least one key, e.g.:  GEMINI_API_KEY=your-key-here\n"
+            "     (GROQ_API_KEY and OPENROUTER_API_KEY work too)\n"
+            "  3. Free Gemini key: https://aistudio.google.com/apikey\n"
+            "  4. Run ghost-api doctor again\n"
+            "[dim]Without a key, ghost-api run still works with --no-agent.[/]"
+        )
         raise typer.Exit(code=1)
-    console.print(f"{working} provider(s) working. Fallback order: GHOST_API_PROVIDERS in .env.")
+    console.print(
+        f"{working} provider(s) working in {elapsed:.1f}s. "
+        f"Fallback order: GHOST_API_PROVIDERS in .env."
+    )
 
 
 @app.command()
@@ -938,12 +1059,18 @@ def inspect(
     with Store(path) as store:
         domain = _site(store, domain) if domain else None
         runs = store.list_runs(domain)
-        latest = store.latest_endpoint_run(domain) if domain else None
-        endpoints = store.load_endpoints(domain, latest) if domain and latest else []
+        endpoints = store.current_endpoints(domain) if domain else []
+        total_endpoints = len(endpoints) if domain else _endpoint_total(store, runs)
         lessons = store.lessons_for(domain, limit=20) if domain else []
     if not runs:
         console.print("No runs found.")
         return
+    # Summary line above the table
+    sites_set = {r.domain for r in runs}
+    console.print(
+        f"[bold]{len(sites_set)} site(s) explored, "
+        f"{total_endpoints} endpoint(s) across {len(runs)} run(s).[/]"
+    )
     table = Table(title="Runs")
     for col in ("ID", "Domain", "Goal", "Status", "Requests", "LLM calls", "Started"):
         table.add_column(col)
@@ -968,6 +1095,13 @@ def inspect(
             console.print("[bold]Lessons for next time[/] (newest first):")
             for lesson in lessons:
                 console.print(f"  - {lesson}")
+
+
+def _endpoint_total(store: Store, runs: list[RunRow]) -> int:
+    total = 0
+    for site in {r.domain for r in runs}:
+        total += len(store.current_endpoints(site))
+    return total
 
 
 RESULT_STYLE = {"confirmed": "green", "rejected": "red", "inconclusive": "yellow"}

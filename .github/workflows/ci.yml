@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"  # the generated TypeScript clients' tests run on Node
+      - name: Install
+        shell: bash
+        # 3.13 uses the tested versions in requirements.lock; 3.11 takes the newest versions
+        # pyproject.toml allows, so both the lock and the declared ranges stay honest.
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.python }}" = "3.13" ]; then lock="-c requirements.lock"; fi
+          python -m pip install -e ".[dev,mcp]" $lock
+          python -m playwright install --with-deps chromium
+      - name: Lint
+        run: |
+          python -m ruff check .
+          python -m ruff format --check ghost_api tests
+      - name: Type check
+        run: python -m mypy ghost_api
+      - name: Tests
+        # No LLM keys are needed: the agent is driven by scripted fakes in tests.
+        run: python -m pytest -q
+
+  frontend:
+    name: Dashboard and report viewer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Packaged assets match the source
+        working-directory: .
+        run: |
+          changed="$(git status --porcelain -- ghost_api/web/static ghost_api/export/viewer)"
+          if [ -n "$changed" ]; then
+            echo "Rebuild the frontend (cd web && npm run build) and commit the result:"
+            echo "$changed"
+            exit 1
+          fi
+
+  package:
+    name: Wheel contents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build the wheel and install it
+        run: |
+          python -m pip wheel . --no-deps -w dist
+          python scripts/check_package.py dist/*.whl
+          python -m pip install dist/*.whl -c requirements.lock
+          cd /tmp && ghost-api --version
+      - name: Known vulnerabilities in dependencies
+        run: |
+          python -m pip install pip-audit
+          pip-audit --progress-spinner off  # the installed wheel and its dependencies

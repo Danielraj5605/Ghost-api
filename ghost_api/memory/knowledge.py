@@ -58,7 +58,7 @@ def load_memory(store: Store, domain: str) -> DomainMemory | None:
         goal=runs[0].goal,
         start_url=runs[0].start_url,
         run_id=run_id,
-        endpoints=store.load_endpoints(domain, run_id),
+        endpoints=store.current_endpoints(domain),
         lessons=store.lessons_for(domain),
         plan=plan,
     )

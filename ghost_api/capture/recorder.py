@@ -18,6 +18,8 @@ from ghost_api.capture import filters, personal
 from ghost_api.capture.models import CapturedRequest, RawRequest
 
 MAX_BODY_CHARS = 500_000
+MAX_CAPTURE_BYTES = 5_000_000  # one reply bigger than this is not read (response-too-large)
+RUN_CAPTURE_BUDGET = 200_000_000  # bodies read in one run; beyond it nothing more is read
 
 
 class TrafficRecorder:
@@ -33,6 +35,7 @@ class TrafficRecorder:
         self.raw: list[RawRequest | None] = []
         self.dropped: Counter[str] = Counter()
         self._pending: list[Response] = []
+        self.bytes_read = 0
 
     def attach(self, page: Page) -> None:
         page.on("response", self._on_response)
@@ -76,11 +79,25 @@ class TrafficRecorder:
         try:
             resp_headers = response.all_headers()
             req_headers = request.all_headers()
+            declared = resp_headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > MAX_CAPTURE_BYTES:
+                self.dropped["response-too-large"] += 1  # never read into memory
+                return None
+            if self.bytes_read > RUN_CAPTURE_BUDGET:
+                self.dropped["capture-budget-used"] += 1
+                return None
             body_bytes = response.body()
             post_bytes = request.post_data_buffer
         except PlaywrightError:
             # Body is gone (page navigated away, request aborted, ...).
             self.dropped["no-body"] += 1
+            return None
+
+        self.bytes_read += len(body_bytes)
+        if len(body_bytes) > MAX_CAPTURE_BYTES:
+            # No content-length (chunked): the body had to be read, but it is not decoded,
+            # parsed or stored, so a partial reply never becomes a schema.
+            self.dropped["response-too-large"] += 1
             return None
 
         # Binary bodies (protobuf, images sent over fetch...) are not JSON APIs. Decoding

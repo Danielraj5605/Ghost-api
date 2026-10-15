@@ -108,14 +108,15 @@ def test_open_links_the_report(tmp_path: Path) -> None:
     report.write_text("<html></html>", encoding="utf-8")
     repl.handle("/open quotes.toscrape.com/scroll")
     assert opened == [report.resolve().as_uri()]
-    assert report.resolve().as_uri() in out.getvalue()
+    assert "report.html" in out.getvalue()
 
 
 def test_file_links() -> None:
     url = file_url("output/x/report.html")
     assert url.startswith("file:///") and url.endswith("/output/x/report.html")
     text = file_link("output/x/report.html")
-    assert text.plain == url and f"link {url}" in str(text.style)
+    # Visible text is a short relative path, but the link URL is the full file:/// URI
+    assert "report.html" in text.plain and f"link {url}" in str(text.style)
 
 
 def test_the_input_loop_needs_ctrl_c_twice(tmp_path: Path) -> None:
@@ -185,5 +186,115 @@ def test_a_real_run_inside_the_session(tmp_path: Path, monkeypatch: pytest.Monke
     text = buffer.getvalue()
     report = (tmp_path / "output" / "127.0.0.1" / "report.html").resolve()
     assert report.exists()
-    assert report.as_uri() in text  # the clickable link, not just a path
+    assert "report.html" in text  # the clickable link shows a relative path now
     assert "127.0.0.1" in text.split("Report:")[-1] and "Goodbye" in text
+
+
+# --- found in use: the goal question broke Backspace/Enter on Windows ---
+
+
+def test_goal_question_uses_the_input_box_and_ctrl_c_cancels_it(tmp_path: Path) -> None:
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    repl, calls, _, out = make(tmp_path)
+    with create_pipe_input() as pipe:
+        pipe.send_text("https://quotes.toscrape.com/scroll\r")
+        pipe.send_text("list quotes\r")  # answered in the same input box
+        pipe.send_text("https://news.example.com/home\r")
+        pipe.send_text("\x03")  # Ctrl+C at the question: cancel, not exit
+        pipe.send_text("/exit\r")
+        run_session(repl.console, repl, has_llm=True, prompt_input=pipe,
+                    prompt_output=DummyOutput())  # fmt: skip
+    assert calls.calls == [["run", "https://quotes.toscrape.com/scroll", "--goal",
+                            "list quotes", "--lang", "python"]]  # fmt: skip
+    assert "nothing started" in out.getvalue() and "Goodbye" in out.getvalue()
+
+
+def test_ctrl_c_key_mode_is_only_on_while_something_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import contextlib
+    from collections.abc import Iterator
+
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from ghost_api.ui import keys
+
+    events: list[str] = []
+
+    @contextlib.contextmanager
+    def fake_mode() -> Iterator[None]:
+        events.append("key-mode on")
+        yield
+        events.append("key-mode off")
+
+    monkeypatch.setattr(keys, "ctrl_c_as_key", fake_mode)
+    repl, calls, _, _ = make(tmp_path)
+    repl.invoke = lambda args: events.append(f"run {args[0]}")  # type: ignore[method-assign]
+    with create_pipe_input() as pipe:
+        pipe.send_text("https://quotes.toscrape.com/scroll\r")  # the goal is asked first...
+        pipe.send_text("list quotes\r")
+        pipe.send_text("/exit\r")
+        run_session(repl.console, repl, has_llm=True, prompt_input=pipe,
+                    prompt_output=DummyOutput())  # fmt: skip
+    # ...outside the key mode; only the run itself is inside it.
+    assert events == ["key-mode on", "run run", "key-mode off"]
+
+
+def test_answering_during_a_run_restores_normal_typing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ghost_api.ui import keys
+
+    modes: list[bool] = []
+    watcher = keys._Watcher(modes.append)
+    monkeypatch.setattr(keys, "_active", watcher)
+    with keys.input_paused():
+        assert watcher.pause.is_set() and modes == [True]  # Backspace, Enter work again
+    assert not watcher.pause.is_set() and modes == [True, False]
+
+
+def test_commands_with_an_unexplored_url_explain_what_to_do(tmp_path: Path) -> None:
+    repl, calls, _, out = make(tmp_path)
+    repl.handle("/generate https://news.google.com/home?hl=en-IN&gl=IN&ceid=IN:en")
+    assert calls.calls == []
+    assert "news.google.com/home hasn't been explored yet" in out.getvalue()
+
+
+def test_ctrl_c_presses_during_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1st: stop at the next safe point (and say so), 2nd: interrupt now, 3rd: quit."""
+    from ghost_api.ui import keys
+
+    said: list[str] = []
+    actions: list[str] = []
+    monkeypatch.setattr(keys, "on_stop_requested", said.append)
+    monkeypatch.setattr(keys._thread, "interrupt_main", lambda: actions.append("interrupt"))
+    monkeypatch.setattr(keys.os, "_exit", lambda code: actions.append(f"exit {code}"))
+    keys._stop.clear()
+    keys.pressed(1)
+    assert keys.stop_requested() and "Stopping after the current step" in said[0]
+    assert actions == []
+    keys.pressed(2)
+    keys.pressed(3)
+    assert actions == ["interrupt", "exit 130"]
+    keys._stop.clear()
+
+
+def test_a_stop_request_ends_a_no_agent_visit_as_interrupted(tmp_path: Path) -> None:
+    from evals.demo_shop import serve as serve_shop
+    from ghost_api.events import EventBus
+    from ghost_api.memory.store import Store
+    from ghost_api.net import RateLimiter, RobotsPolicy
+    from ghost_api.pipeline import RunOptions, explore_site, open_session
+
+    shop = serve_shop(0)
+    url = f"http://127.0.0.1:{shop.server_address[1]}/"
+    try:
+        with Store(tmp_path / "t.db") as store:
+            s = open_session(store, EventBus(), "127.0.0.1", url, "g", False, RateLimiter(50),
+                             RobotsPolicy.allow_all("127.0.0.1"), None, 5)  # fmt: skip
+            s.stop = lambda: True  # as if Ctrl+C was pressed once
+            status, reason = explore_site(s, RunOptions(out=tmp_path / "o"), use_agent=False)
+    finally:
+        shop.shutdown()
+    assert (status, reason) == ("interrupted", "stopped by user")

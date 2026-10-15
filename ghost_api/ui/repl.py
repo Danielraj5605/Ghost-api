@@ -66,6 +66,8 @@ COMMANDS = [
     Command("/inspect", "/inspect [SITE] [--run N]", "What's stored about a site or a run",
             cli="inspect"),
     Command("/doctor", "/doctor", "Check your LLM keys", cli="doctor"),
+    Command("/forget", "/forget SITE [--llm-cache]", "Delete everything stored about a site",
+            cli="forget"),
     Command("/lang", "/lang python|typescript", "Client language for new runs"),
     Command("/agent", "/agent on|off", "Use the AI agent for new runs, or just load the page"),
     Command("/clear", "/clear", "Clear the screen"),
@@ -138,19 +140,37 @@ class Repl:
             self.console.print(
                 Text("Report: ", style="bold") + file_link(report) + Text("  (/open)", style="dim")
             )
-        self.console.print(
-            Text(
-                f"Next: /fetch to download {self.site}'s data · /watch add for alerts · "
-                "another URL to explore · /exit to finish",
-                style="dim",
-            )  # fmt: skip
-        )
+            self.console.print(
+                Text(
+                    f"Next: /fetch to download {self.site}'s data · /watch add for alerts · "
+                    "another URL to explore · /exit to finish",
+                    style="dim",
+                )  # fmt: skip
+            )
+        else:
+            # No report generated — likely no endpoints found
+            self.console.print(
+                Text(
+                    "No endpoints found this time. Try a different goal, or paste a new URL. "
+                    "Type /doctor to check your LLM keys.",
+                    style="yellow",
+                )
+            )
+            self.console.print(
+                Text(
+                    f"Next: /fetch {self.site} to see what's available · another URL to explore "
+                    "· /exit to finish",
+                    style="dim",
+                )
+            )
 
     def _command(self, line: str) -> bool:
         name, _, rest = line.partition(" ")
         command = BY_NAME.get(name.lower())
         if command is None:
-            close = [c.name for c in COMMANDS if c.name.startswith(name.lower()[:3])]
+            from difflib import get_close_matches
+
+            close = get_close_matches(name.lower(), [c.name for c in COMMANDS], n=3, cutoff=0.5)
             hint = f" Did you mean {', '.join(close)}?" if close else ""
             self.console.print(f"Unknown command {name}.{hint} Type /help for the list.")
             return True
@@ -184,6 +204,15 @@ class Repl:
             args = [self.site, *args]
         if command.name == "/watch" and not args:
             args = ["list"]
+        if command.needs_site and args and "://" in args[0]:
+            site = site_key(args[0])
+            if not (self.out / site).exists():
+                self.console.print(
+                    f"{site} hasn't been explored yet. To explore it, paste the URL with what "
+                    f"you want (no /command), e.g. [bold]{args[0]} list the headlines[/]"
+                )
+                return
+            args = [site, *args[1:]]
         if args and command.needs_site:
             self.site = args[0] if "/" in args[0] or "." in args[0] else self.site
         self.invoke([command.cli or "", *args])
@@ -234,6 +263,8 @@ def _find_url(line: str) -> str | None:
     if local:
         return local.group(1)
     for match in URL_RE.finditer(line):
+        if line[match.end() : match.end() + 1] == "@":
+            continue  # the name part of an email address (john.doe@example.com)
         candidate = match.group(1).rstrip(".,;)")
         host = candidate.split("://")[-1].split("/")[0].split(":")[0]
         is_file = host.endswith(FILE_SUFFIXES)
@@ -258,7 +289,6 @@ def welcome_panel(cwd: Path, has_llm: bool) -> Panel:
         Text("  Paste a website and say what data you want.", style="dim"),
         Text("  /help for commands · Ctrl+C twice to exit", style="dim"),
         Text(""),
-        Text(f"  cwd: {cwd}", style="dim"),
         Text("  AI agent: ready", style="dim")
         if has_llm
         else Text("  AI agent: no LLM key in .env (pages are only loaded and scrolled)",
@@ -306,7 +336,7 @@ def help_panel() -> Panel:
 def run_session(
     console: Console,
     repl: Repl,
-    has_llm: bool,
+    has_llm: bool | Callable[[], bool],
     history_file: Path | None = None,
     prompt_input: object | None = None,
     prompt_output: object | None = None,
@@ -353,9 +383,31 @@ def run_session(
 
     from ghost_api.ui import terminal
 
+    def ask(question: str) -> str:
+        """A follow-up question, in the same input box (Backspace, arrows... all work).
+        Ctrl+C or an empty answer cancels."""
+        try:
+            return session.prompt(
+                HTML(f"<prompt>{_escape(question)}</prompt>"),
+                bottom_toolbar=HTML("<hint>  Ctrl+C to cancel</hint>"),
+            )
+        except (KeyboardInterrupt, EOFError):
+            return ""
+
+    plain_invoke = repl.invoke
+
+    def invoke(args: list[str]) -> None:
+        # Only while something runs: Ctrl+C becomes a key (see ui/keys.py).
+        terminal.PROGRESS.update(site="", step=0, endpoints=0)
+        with keys.ctrl_c_as_key():
+            plain_invoke(args)
+
+    plain_ask = repl.ask
+    repl.ask, repl.invoke = ask, invoke
+    keys.on_stop_requested = lambda message: console.print(f"[yellow]{message}[/]")
     terminal.SESSION["active"] = True
     try:
-        console.print(welcome_panel(Path.cwd(), has_llm))
+        console.print(welcome_panel(Path.cwd(), has_llm() if callable(has_llm) else has_llm))
         console.print(tips())
         while True:
             console.print()
@@ -374,15 +426,15 @@ def run_session(
                 break
             state["armed"] = 0.0
             try:
-                with keys.ctrl_c_as_key():
-                    keep_going = repl.handle(line)
+                keep_going = repl.handle(line)
             except KeyboardInterrupt:
-                console.print("[yellow]Stopped.[/]")
+                console.print(f"[yellow]{terminal.stop_message(repl.site or '')}[/]")
                 keep_going = True
             if not keep_going:
                 break
     finally:
         terminal.SESSION["active"] = False
+        repl.ask, repl.invoke = plain_ask, plain_invoke
     console.print(Text("Goodbye. Your results are in ", style="dim") + file_link(repl.out))
 
 

@@ -14,6 +14,15 @@ from ghost_api.generator.ts_gen import write_typescript
 from ghost_api.llm.gateway import LLMError, LLMGateway
 from ghost_api.memory.store import Store
 
+__all__ = [
+    "GenerationResult",
+    "NothingToGenerate",
+    "generate_client",
+    "generate_from",
+    "name_endpoints",
+    "plan_for",
+]
+
 
 class NothingToGenerate(Exception):
     pass
@@ -96,12 +105,12 @@ def generate_client(
     lang: str = "python",
     allow: set[str] | None = None,
 ) -> GenerationResult:
-    """Build the client for `domain` from the endpoints of its most recent run."""
+    """Build the client for `domain` from everything known about it (all runs)."""
     run_id = store.latest_endpoint_run(domain)
     run = store.latest_run(domain)
     if run_id is None or run is None:
         raise NothingToGenerate(f"no endpoints stored for {domain}; run `ghost-api run` first")
-    endpoints = store.load_endpoints(domain, run_id)
+    endpoints = store.current_endpoints(domain)
     requests = store.requests_for_domain(domain)
     plan = plan_for(store, llm, domain, endpoints)
     # Remember what the user allowed, so a later plain `generate` keeps those methods.

@@ -22,6 +22,13 @@ import httpx
 from ghost_api.capture import filters, personal
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
+from ghost_api.netguard import (
+    NetworkPolicy,
+    PolicyDenied,
+    ResponseTooLarge,
+    guarded_client,
+    read_limited,
+)
 
 # Whole words in the URL (path segments split on punctuation and camelCase). A POST is
 # read-only only if a READ word is present and no WRITE word is. Substring matching was a
@@ -181,14 +188,20 @@ class Replayer:
         client: httpx.Client | None = None,
         robots_fetcher: Callable[[str], RobotsPolicy] = fetch_robots,
         max_requests: int = 80,
+        policy: NetworkPolicy | None = None,
     ) -> None:
+        """`policy`: where requests may go, checked on every redirect hop (default: decided
+        from the target, so a public site can't send replays to a private address)."""
         self.target_host = target_host
         self.limiter = limiter
         self._robots: dict[str, RobotsPolicy] = {}
         if robots is not None:
             self._robots[robots.host] = robots
         self._fetch_robots = robots_fetcher
-        self._client = client or httpx.Client(timeout=TIMEOUT_S, follow_redirects=False)
+        self.policy = policy or NetworkPolicy.for_target(f"https://{target_host}/")
+        self._client = client or guarded_client(
+            self.policy, timeout=TIMEOUT_S, follow_redirects=False
+        )
         self.max_requests = max_requests
         self.requests_made = 0
 
@@ -220,23 +233,28 @@ class Replayer:
             for k, v in raw.headers.items()
             if k.lower() not in DROP_HEADERS and not k.startswith(":")
         }
-        try:
-            resp = self._client.request(
+        try:  # the default client checks the destination of every hop (netguard.py)
+            with self._client.stream(
                 raw.method,
                 raw.url,
                 headers=headers,
                 content=raw.body.encode() if raw.body else None,
-            )
+            ) as resp:
+                text = read_limited(resp).text
+        except PolicyDenied as exc:
+            raise ReplayRefused(str(exc)) from exc
+        except ResponseTooLarge as exc:
+            return ReplayResult(resp.status_code, None, str(exc))
         except httpx.HTTPError as exc:
             return ReplayResult(0, None, f"network error: {type(exc).__name__}")
 
         try:
-            body = filters.parse_response_json(resp.text)
+            body = filters.parse_response_json(text)
         except ValueError:
             body = None
         ctype = resp.headers.get("content-type")
         stored_body, personal_data = (
-            personal.hide_body(filters.redact_body(filters.strip_xssi(resp.text), ctype))
+            personal.hide_body(filters.redact_body(filters.strip_xssi(text), ctype))
             if body is not None
             else (None, [])
         )

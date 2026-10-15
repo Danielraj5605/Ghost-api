@@ -23,9 +23,10 @@ from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.exposure import exposures, summary_line
 from ghost_api.analysis.models import Endpoint
 from ghost_api.browser.driver import BrowserSession
+from ghost_api.browser.gate import RequestGate
 from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
-from ghost_api.errors import friendly_error
+from ghost_api.errors import error_code, friendly_error
 from ghost_api.events import (
     AgentStep,
     ClientGenerated,
@@ -57,7 +58,8 @@ from ghost_api.memory.knowledge import (
     write_lessons,
 )
 from ghost_api.memory.store import Store
-from ghost_api.net import RateLimiter, RobotsPolicy, fetch_robots
+from ghost_api.net import MultiHostRobotsPolicy, RateLimiter, RobotsPolicy, fetch_robots
+from ghost_api.netguard import NetworkPolicy
 from ghost_api.probe.prober import Prober, ProbeReport
 from ghost_api.probe.replay import Replayer, is_replayable
 from ghost_api.site import site_key
@@ -96,12 +98,23 @@ def screenshots_dir(db_path: Path, run_id: int) -> Path:
 
 def robots_policy(
     url: str, ignore: bool, limiter: RateLimiter, bus: EventBus
-) -> tuple[RobotsPolicy, bool]:
-    """The site's robots.txt rules, and whether the start page may be visited."""
+) -> tuple[MultiHostRobotsPolicy, bool]:
+    """The site's robots.txt rules, and whether the start page may be visited.
+
+    Returns a ``MultiHostRobotsPolicy`` that lazily fetches robots.txt for any
+    new subdomain the agent navigates to (Issue 3).
+    """
     host = urlsplit(url).hostname or ""
     if ignore:
         bus.emit(Notice("robots.txt check skipped (--ignore-robots)", "warning"))
-        return RobotsPolicy.allow_all(host), True
+        return (
+            MultiHostRobotsPolicy(
+                RobotsPolicy.allow_all(host),
+                limiter,
+                lambda u, _l: RobotsPolicy.allow_all(urlsplit(u).hostname or ""),
+            ),
+            True,
+        )
     robots = fetch_robots(url, limiter)
     verdict = robots.verdict(url)
     if not verdict.allowed:
@@ -112,12 +125,12 @@ def robots_policy(
                 "Use --ignore-robots only if you have permission to access this site.",
             )
         )
-        return robots, False
+        return MultiHostRobotsPolicy(robots, limiter), False
     bus.emit(Notice(f"robots.txt: {verdict.reason}", "success"))
     if verdict.crawl_delay:
         limiter.slow_down_to(verdict.crawl_delay)
         bus.emit(Notice(f"Honoring the site's Crawl-delay of {verdict.crawl_delay}s"))
-    return robots, True
+    return MultiHostRobotsPolicy(robots, limiter), True
 
 
 # --- the session -----------------------------------------------------------------------------
@@ -143,9 +156,30 @@ class Session:
     memory: str = ""
     steps: list[StepRecord] = field(default_factory=list)
     site: str = ""  # memory and output folder: host or host/section (ghost_api/site.py)
+    network: NetworkPolicy | None = None  # where the browser may connect (netguard.py)
+    _blocked: set[str] = field(default_factory=set)
 
     def emit(self, event: Event) -> None:
         self.bus.emit(event)
+
+    def _on_block(self, message: str) -> None:
+        """A request the network rules stopped: said once in the run log."""
+        if message not in self._blocked:
+            self._blocked.add(message)
+            self.emit(Notice(message, "warning"))
+
+    def browser(self) -> BrowserSession:
+        """A browser whose every request follows the run's rules: no private addresses
+        (unless the target itself is local), robots.txt and the rate limit."""
+        gate = RequestGate(self.host, self.robots, self.replayer.limiter, self._on_block)
+        return BrowserSession(
+            self.start_url,
+            self.recorder,
+            headed=self.headed,
+            policy=self.network,
+            gate=gate,
+            on_block=self._on_block,
+        )
 
     def phase(self, phase: Phase) -> None:
         self.emit(PhaseChanged(phase))
@@ -203,7 +237,7 @@ class Session:
     ) -> AgentResult:
         """Open the browser and let the agent work toward `goal`."""
         assert self.gateway is not None
-        with BrowserSession(self.start_url, self.recorder, headed=self.headed) as browser:
+        with self.browser() as browser:
             return Explorer(
                 browser=browser,
                 llm=self.gateway,
@@ -226,9 +260,11 @@ class Session:
 
     def visit(self, scrolls: int) -> None:
         """Load the start page and scroll, without the agent (no LLM)."""
-        with BrowserSession(self.start_url, self.recorder, headed=self.headed) as browser:
+        with self.browser() as browser:
             browser.goto(self.start_url)
             for _ in range(scrolls):
+                if self.stop is not None and self.stop():
+                    break
                 browser.scroll("bottom")
             shoot = self._shooter(browser)
             if shoot:
@@ -273,7 +309,8 @@ def open_session(
         bus.emit(RequestCaptured(req.method, req.url, req.status, req.third_party))
 
     recorder = TrafficRecorder(host, on_capture=on_capture)
-    replayer = Replayer(host, limiter, robots, max_requests=max_probes)
+    network = NetworkPolicy.for_target(start_url)
+    replayer = Replayer(host, limiter, robots, max_requests=max_probes, policy=network)
     screens = screenshots_dir(screens_root, run_id) if screens_root is not None else None
     session = Session(
         store,
@@ -289,10 +326,13 @@ def open_session(
         gateway,
         screens,
         site=site,
+        network=network,
     )
     bus.emit(
         RunStarted(run_id, site, start_url, goal, "refresh" if mode == "refresh" else "run", lang)
     )
+    if network.allow_private:
+        bus.emit(Notice("Local target: this computer and the local network may be reached"))
     return session
 
 
@@ -310,13 +350,15 @@ def explore_site(
     try:
         if not use_agent:
             s.visit(AUTO_SCROLLS)
+            if s.stop is not None and s.stop():
+                return "interrupted", "stopped by user"
             return "captured", "--no-agent: scrolled the page"
         result = s.explore(s.goal, opts.max_steps, opts.max_minutes, ask_user=ask_user)
         return result.status, result.reason
     except KeyboardInterrupt:
         return "interrupted", "stopped by user"
     except Exception as exc:
-        s.emit(Notice(friendly_error(exc), "error"))
+        s.emit(Notice(friendly_error(exc), "error", f"error code: {error_code(exc)}"))
         return "failed", friendly_error(exc)
 
 
@@ -352,10 +394,14 @@ def refresh_site(s: Session, mem: DomainMemory, max_steps: int) -> tuple[str, st
     except KeyboardInterrupt:
         return "interrupted", "stopped by user"
     except Exception as exc:
-        s.emit(Notice(friendly_error(exc), "error"))
+        s.emit(Notice(friendly_error(exc), "error", f"error code: {error_code(exc)}"))
         return status, friendly_error(exc)
     if missing:
         names = ", ".join(e.label for e in missing)
+        if status == "refreshed" and s.gateway is not None:
+            # Looked for with every tool we have and still not seen: the site dropped them.
+            # They stay in the history but leave the client, report and runtime.
+            s.store.mark_gone(mem.domain, [e.key for e in missing], s.run_id)
         return status, f"{len(missing)} known endpoint(s) not seen again: {names}"
     return status, "all known endpoints re-captured"
 

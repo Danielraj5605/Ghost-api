@@ -22,6 +22,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 import httpx
@@ -113,6 +114,7 @@ class LLMGateway:
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        cooldown_file: Path | None = None,
     ) -> None:
         self.providers = [p for p in providers if p.api_key]
         # One route per (provider, model): each provider's candidate models, in order.
@@ -130,6 +132,10 @@ class LLMGateway:
         self._sleep = sleep
         self._clock = clock
         self._cooldown_until: dict[str, float] = {}  # route key -> clock time
+        # Remembered between runs, so a provider that just said "too many requests" is not
+        # asked again right away by the next command (it would only waste a request).
+        self._cooldown_file = cooldown_file
+        self._load_cooldowns()
 
     def close(self) -> None:
         self._client.close()
@@ -213,6 +219,7 @@ class LLMGateway:
                     # Rate-limited or overloaded: this model rests, the next one is tried.
                     default = DEFAULT_COOLDOWN_S if exc.quota else OVERLOAD_COOLDOWN_S
                     self._cooldown_until[key] = self._clock() + (exc.retry_after or default)
+                    self._save_cooldowns()
                 elif isinstance(exc, _Fatal) and exc.status in (401, 403):
                     self._disabled.add(route.name)  # bad key: no model of it will work
                 elif isinstance(exc, _Fatal) and exc.status == 404:
@@ -223,6 +230,31 @@ class LLMGateway:
         raise LLMUnavailable(errors)
 
     # --- internals ---
+
+    def _load_cooldowns(self) -> None:
+        if self._cooldown_file is None:
+            return
+        try:
+            saved = json.loads(self._cooldown_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return  # missing or damaged: start fresh
+        if not isinstance(saved, dict):
+            return
+        now_wall, now = time.time(), self._clock()
+        for key, until in saved.items():
+            if isinstance(until, int | float) and until > now_wall:
+                self._cooldown_until[str(key)] = now + (until - now_wall)
+
+    def _save_cooldowns(self) -> None:
+        if self._cooldown_file is None:
+            return
+        now_wall, now = time.time(), self._clock()
+        data = {k: now_wall + (v - now) for k, v in self._cooldown_until.items() if v > now}
+        try:
+            self._cooldown_file.parent.mkdir(parents=True, exist_ok=True)
+            self._cooldown_file.write_text(json.dumps(data), encoding="utf-8")
+        except OSError:
+            pass  # remembering is a nicety; never fail a run over it
 
     def _ask_provider(
         self,

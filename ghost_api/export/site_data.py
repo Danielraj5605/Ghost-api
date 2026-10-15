@@ -91,7 +91,7 @@ def endpoint_details(store: Store, domain: str) -> list[dict[str, Any]]:
     if run_id is None:
         return []
     details = []
-    endpoints = store.load_endpoints(domain, run_id)
+    endpoints = store.current_endpoints(domain)
     requests = store.requests_for_domain(domain)
     found = exposures(endpoints, requests)
     exposed = {e.endpoint_key: e.to_dict() for e in found}

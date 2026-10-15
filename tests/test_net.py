@@ -1,10 +1,14 @@
 import time
+from collections.abc import Callable
 
 import httpx
 import pytest
 
+from ghost_api import net
 from ghost_api.config import tool_user_agent
-from ghost_api.net import RateLimiter, RobotsPolicy, evaluate_robots, fetch_robots, robots_url
+from ghost_api.net import RateLimiter, RobotsPolicy, evaluate_robots, robots_url
+from ghost_api.net import fetch_robots as real_fetch_robots
+from ghost_api.netguard import NetworkPolicy
 
 ROBOTS = """
 User-agent: *
@@ -68,21 +72,31 @@ def test_robots_policy_defaults() -> None:
 # --- robots.txt that the site refuses to show (found with Wikipedia) ---
 
 
-def _fake_get(status: int, text: str = "", seen: list[dict[str, str]] | None = None):  # type: ignore[no-untyped-def]
-    def get(url: str, headers: dict[str, str], **kwargs: object) -> httpx.Response:
-        if seen is not None:
-            seen.append(headers)
-        return httpx.Response(status, text=text, request=httpx.Request("GET", url))
+PUBLIC = NetworkPolicy(resolver=lambda _host, _port: ["93.184.216.34"])
 
-    return get
+
+def _fake_get(
+    status: int, text: str = "", seen: list[dict[str, str]] | None = None
+) -> Callable[..., RobotsPolicy]:
+    """fetch_robots against a fake site that answers robots.txt with `status`/`text`."""
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append({"User-Agent": request.headers["user-agent"]})
+        return httpx.Response(status, text=text)
+
+    def fetch(url: str, limiter: RateLimiter | None = None) -> RobotsPolicy:
+        return real_fetch_robots(url, limiter, PUBLIC, httpx.MockTransport(reply))
+
+    return fetch
 
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_forbidden_robots_txt_means_not_allowed(
     monkeypatch: pytest.MonkeyPatch, status: int
 ) -> None:
-    monkeypatch.setattr(httpx, "get", _fake_get(status))
-    policy = fetch_robots("https://wiki.test/w/rest.php/v1/search/title?q=x")
+    monkeypatch.setattr(net, "fetch_robots", _fake_get(status))
+    policy = net.fetch_robots("https://wiki.test/w/rest.php/v1/search/title?q=x")
     assert not policy.allows("https://wiki.test/anything")
     assert "forbidden" in policy.reason and "GHOST_API_CONTACT" in policy.reason
 
@@ -91,25 +105,25 @@ def test_forbidden_robots_txt_means_not_allowed(
 def test_missing_robots_txt_still_means_allowed(
     monkeypatch: pytest.MonkeyPatch, status: int
 ) -> None:
-    monkeypatch.setattr(httpx, "get", _fake_get(status))
-    assert fetch_robots("https://site.test/").allows("https://site.test/api/x")
+    monkeypatch.setattr(net, "fetch_robots", _fake_get(status))
+    assert net.fetch_robots("https://site.test/").allows("https://site.test/api/x")
 
 
 def test_the_disallow_rule_is_applied_once_it_can_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
     rules = "User-agent: *\nDisallow: /w/\nAllow: /w/load.php?\n"
-    monkeypatch.setattr(httpx, "get", _fake_get(200, rules))
-    policy = fetch_robots("https://wiki.test/")
+    monkeypatch.setattr(net, "fetch_robots", _fake_get(200, rules))
+    policy = net.fetch_robots("https://wiki.test/")
     assert not policy.allows("https://wiki.test/w/rest.php/v1/search/title?q=x")
     assert policy.allows("https://wiki.test/wiki/Article")
 
 
 def test_contact_is_added_only_when_the_user_sets_it(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[dict[str, str]] = []
-    monkeypatch.setattr(httpx, "get", _fake_get(404, seen=seen))
+    monkeypatch.setattr(net, "fetch_robots", _fake_get(404, seen=seen))
     monkeypatch.delenv("GHOST_API_CONTACT", raising=False)
-    fetch_robots("https://site.test/")
+    net.fetch_robots("https://site.test/")
     monkeypatch.setenv("GHOST_API_CONTACT", "me@example.org")
-    fetch_robots("https://site.test/")
+    net.fetch_robots("https://site.test/")
     assert "contact" not in seen[0]["User-Agent"]
     assert seen[1]["User-Agent"].endswith("(contact: me@example.org)")
     assert tool_user_agent().startswith("GhostAPI/")

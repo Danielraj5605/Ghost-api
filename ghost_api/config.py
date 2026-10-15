@@ -12,10 +12,19 @@ from ghost_api import __version__
 
 TOOL_NAME = "GhostAPI"
 # Appended to the browser's real user-agent so sites can identify the tool (NFR-20).
-# TODO: add the project URL once the GitHub repo exists.
-USER_AGENT_SUFFIX = f"{TOOL_NAME}/{__version__} (API discovery tool)"
+PROJECT_URL = "https://github.com/Danielraj5605/Ghost-api"
+USER_AGENT_SUFFIX = f"{TOOL_NAME}/{__version__} (API discovery tool; +{PROJECT_URL})"
 
 SUPPORTED_LANGUAGES = ("python", "typescript")
+
+
+def check_language(lang: str) -> str:
+    """The one place the client language is validated (CLI options and Settings use it)."""
+    if lang not in SUPPORTED_LANGUAGES:
+        raise ValueError(
+            f"Unsupported language '{lang}'. Supported: {', '.join(SUPPORTED_LANGUAGES)}"
+        )
+    return lang
 
 
 def tool_user_agent() -> str:
@@ -46,10 +55,7 @@ class Settings:
     output_dir: Path = Path("output")
 
     def __post_init__(self) -> None:
-        if self.lang not in SUPPORTED_LANGUAGES:
-            raise ValueError(
-                f"Unsupported language '{self.lang}'. Supported: {', '.join(SUPPORTED_LANGUAGES)}"
-            )
+        check_language(self.lang)
         if self.rate_limit <= 0:
             raise ValueError("--rate-limit must be greater than 0")
         for name in ("max_steps", "max_llm_calls"):
@@ -67,6 +73,11 @@ class ApiKeys:
 def load_env() -> None:
     """Load .env from the current directory (if present) without overriding real env vars."""
     load_dotenv(override=False)
+
+
+def state_dir() -> Path:
+    """Small files Ghost API keeps between runs (history, provider cooldowns)."""
+    return Path(os.getenv("GHOST_API_HOME") or Path.home() / ".ghost-api")
 
 
 def default_db_path() -> Path:

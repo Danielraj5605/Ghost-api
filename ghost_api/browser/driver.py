@@ -7,13 +7,17 @@ flushes the traffic recorder so response bodies are read before the next action.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
+from ghost_api.browser.egress import EgressProxy
+from ghost_api.browser.gate import RequestGate
 from ghost_api.browser.snapshot import (
     SNAPSHOT_ARGS,
     SNAPSHOT_JS,
@@ -24,6 +28,7 @@ from ghost_api.capture.models import CapturedRequest
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.config import tool_user_agent
 from ghost_api.net import RobotsPolicy
+from ghost_api.netguard import NetworkPolicy
 
 NAV_TIMEOUT_MS = 30_000
 SETTLE_TIMEOUT_MS = 8_000
@@ -37,10 +42,24 @@ class ActionError(Exception):
 
 
 class BrowserSession:
-    def __init__(self, start_url: str, recorder: TrafficRecorder, headed: bool = False) -> None:
+    def __init__(
+        self,
+        start_url: str,
+        recorder: TrafficRecorder,
+        headed: bool = False,
+        policy: NetworkPolicy | None = None,
+        gate: RequestGate | None = None,
+        on_block: Callable[[str], None] | None = None,
+    ) -> None:
+        """`policy`: where the browser may connect (default: decided from `start_url`).
+        `gate`: robots.txt and rate limits for the browser's own requests."""
         self.start_url = start_url
         self.recorder = recorder
         self.headed = headed
+        self.policy = policy or NetworkPolicy.for_target(start_url)
+        self.gate = gate
+        self.on_block = on_block
+        self._proxy: EgressProxy | None = None
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -59,14 +78,22 @@ class BrowserSession:
         return urlsplit(self.start_url).hostname or ""
 
     def open(self) -> BrowserSession:
+        launch: dict[str, Any] = {"headless": not self.headed}
+        if not self.policy.allow_private:
+            # Every connection goes through the egress proxy, loopback included (Chromium
+            # skips the proxy for localhost unless told "<-loopback>").
+            self._proxy = EgressProxy(self.policy, self._blocked).start()
+            launch["proxy"] = {"server": self._proxy.url, "bypass": "<-loopback>"}
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=not self.headed)
+        self._browser = self._pw.chromium.launch(**launch)
         # Keep the real browser user-agent (so sites behave normally) and add an honest
         # identifier for this tool (NFR-20).
         probe = self._browser.new_page()
         base_ua = probe.evaluate("navigator.userAgent")
         probe.close()
         self._context = self._browser.new_context(user_agent=f"{base_ua} {tool_user_agent()}")
+        if self.gate is not None:
+            self._context.route("**/*", self.gate.handle)
         self._page = self._context.new_page()
         # Registered after the main tab exists, so only real popups are caught.
         self._context.on("page", self._on_popup)
@@ -84,7 +111,15 @@ class BrowserSession:
                     closer.close()
         if self._pw is not None:
             self._pw.stop()
+        if self._proxy is not None:
+            self._proxy.stop()
         self._page = self._context = self._browser = self._pw = None
+        self._proxy = None
+
+    def _blocked(self, message: str) -> None:
+        self.recorder.dropped["blocked-network"] += 1
+        if self.on_block is not None:
+            self.on_block(message)
 
     def __enter__(self) -> BrowserSession:
         return self.open()

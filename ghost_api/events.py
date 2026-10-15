@@ -7,6 +7,7 @@ database (`run_events`), so any past run can be replayed in full.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -16,6 +17,9 @@ from typing import Any, ClassVar, Literal
 Phase = Literal["checks", "explore", "test", "generate", "verify", "learn", "done"]
 PHASES: tuple[Phase, ...] = ("checks", "explore", "test", "generate", "verify", "learn", "done")
 Level = Literal["info", "success", "warning", "error"]
+
+
+_log = logging.getLogger("ghost_api")
 
 
 @dataclass
@@ -186,4 +190,7 @@ class EventBus:
             try:
                 callback(event)
             except Exception as exc:  # noqa: BLE001 - interfaces must not stop the run
-                self.errors.append(f"{type(exc).__name__}: {exc}")
+                message = f"{type(exc).__name__}: {exc}"
+                if not self.errors:  # say it once, so a broken display can't flood the log
+                    _log.warning("A display or listener failed (the run continues): %s", message)
+                self.errors.append(message)

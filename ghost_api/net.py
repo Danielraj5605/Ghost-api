@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
@@ -10,6 +11,15 @@ from urllib.robotparser import RobotFileParser
 import httpx
 
 from ghost_api.config import TOOL_NAME, tool_user_agent
+from ghost_api.netguard import (
+    NetworkPolicy,
+    PolicyDenied,
+    ResponseTooLarge,
+    guarded_client,
+    read_limited,
+)
+
+MAX_ROBOTS_BYTES = 512 * 1024
 
 
 class RateLimiter:
@@ -95,24 +105,83 @@ class RobotsPolicy:
         return RobotsVerdict(allowed, reason, self.crawl_delay)
 
 
+class MultiHostRobotsPolicy(RobotsPolicy):
+    """Lazily fetches and caches robots.txt per host, so subdomains are checked too (Issue 3).
+
+    The agent may navigate from ``www.example.com`` to ``api.example.com``.  A plain
+    ``RobotsPolicy`` only knows the rules for one host and returns ``True`` for any other.
+    This wrapper fetches and caches each host's robots.txt on first encounter.
+
+    It exposes the same ``allows(url)`` interface as ``RobotsPolicy`` so it's a drop-in
+    replacement wherever the orchestrator or pipeline calls ``robots.allows(url)``.
+    """
+
+    def __init__(
+        self,
+        seed: RobotsPolicy,
+        limiter: RateLimiter | None = None,
+        fetcher: Callable[[str, RateLimiter | None], RobotsPolicy] | None = None,
+    ) -> None:
+        super().__init__(seed.host, None, True, seed.reason, seed.agent)
+        self._cache: dict[str, RobotsPolicy] = {seed.host: seed}
+        self._limiter = limiter
+        self._fetch = fetcher or fetch_robots
+
+    def _for(self, url: str) -> RobotsPolicy:
+        host = (urlsplit(url).hostname or "").lower()
+        if host not in self._cache:
+            self._cache[host] = self._fetch(url, self._limiter)
+        return self._cache[host]
+
+    @property
+    def crawl_delay(self) -> float | None:
+        return self._cache[self.host].crawl_delay
+
+    def allows(self, url: str) -> bool:
+        """Check the correct host's robots.txt, fetching it lazily if needed."""
+        return self._for(url).allows(url)
+
+    def verdict(self, url: str) -> RobotsVerdict:
+        return self._for(url).verdict(url)
+
+
 def evaluate_robots(robots_txt: str, url: str, agent: str = TOOL_NAME) -> RobotsVerdict:
     """Apply robots.txt rules to a URL. Pure function, so it's easy to test."""
     host = (urlsplit(url).hostname or "").lower()
     return RobotsPolicy.from_text(host, robots_txt, agent).verdict(url)
 
 
-def fetch_robots(url: str, limiter: RateLimiter | None = None) -> RobotsPolicy:
+def fetch_robots(
+    url: str,
+    limiter: RateLimiter | None = None,
+    policy: NetworkPolicy | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> RobotsPolicy:
     """Fetch robots.txt, following RFC 9309 for missing or unreachable files."""
     host = (urlsplit(url).hostname or "").lower()
     if limiter:
         limiter.wait()
+    # Redirects are followed (RFC 9309), but each hop is checked: a public site's
+    # robots.txt must not lead Ghost API to a private address.
+    client = guarded_client(
+        policy or NetworkPolicy.for_target(url),
+        follow_redirects=True,
+        timeout=10,
+        transport=transport,
+    )
     try:
-        resp = httpx.get(
-            robots_url(url),
-            headers={"User-Agent": tool_user_agent()},
-            follow_redirects=True,
-            timeout=10,
-        )
+        with (
+            client,
+            client.stream(
+                "GET", robots_url(url), headers={"User-Agent": tool_user_agent()}
+            ) as resp,
+        ):
+            text = read_limited(resp, MAX_ROBOTS_BYTES, MAX_ROBOTS_BYTES).text
+    except PolicyDenied as exc:
+        return RobotsPolicy(host, None, False, f"robots.txt {exc}")
+    except ResponseTooLarge:
+        # RFC 9309: at least 500 KiB must be parsed; a bigger file is treated as unreadable.
+        return RobotsPolicy(host, None, False, "robots.txt is too large to read")
     except httpx.HTTPError as exc:
         # Unreachable robots.txt: assume everything is disallowed.
         return RobotsPolicy(host, None, False, f"robots.txt unreachable ({type(exc).__name__})")
@@ -130,7 +199,7 @@ def fetch_robots(url: str, limiter: RateLimiter | None = None) -> RobotsPolicy:
         return RobotsPolicy(host, None, True, f"no robots.txt (HTTP {resp.status_code})")
     if resp.status_code >= 500:
         return RobotsPolicy(host, None, False, f"robots.txt server error (HTTP {resp.status_code})")
-    return RobotsPolicy.from_text(host, resp.text)
+    return RobotsPolicy.from_text(host, text)
 
 
 def check_robots(url: str, limiter: RateLimiter | None = None) -> RobotsVerdict:

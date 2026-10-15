@@ -154,7 +154,9 @@ class Explorer:
 
                 if decision.action == "finish":
                     self._record(step, decision, "finished", [], 0)
-                    status = "goal-covered" if decision.goal_covered else "finished"
+                    # "Covered" only when the agent names nothing missing and found something.
+                    covered = decision.goal_covered and not decision.missing.strip() and bool(known)
+                    status = "goal-covered" if covered else "finished"
                     return self._result(status, decision.thought)
 
                 box = self._box(decision)
