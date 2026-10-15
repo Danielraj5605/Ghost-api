@@ -96,6 +96,11 @@ function parseJson(text: string): unknown {
   return JSON.parse(body);
 }
 
+/** GraphQL variables without the ones left out. */
+function compact(values: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined && v !== null));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -160,7 +165,18 @@ export class {{ spec.class_name }} {
         {{ c.wire | json }}: this.credential({{ c.arg | camel | json }}),
 {% endfor %}
       },
-{% if m.by_location('body') %}
+{% if m.graphql %}
+      {
+{% for key, value in m.graphql.items() %}
+        {{ key | json }}: {{ value | json }},
+{% endfor %}
+        variables: compact({
+{% for p in m.by_location('variable') %}
+          {{ p.wire | json }}: {{ p | value }},
+{% endfor %}
+        }),
+      },
+{% elif m.by_location('body') %}
       {
 {% for p in m.by_location('body') %}
         {{ p.wire | json }}: {{ p | value }},

@@ -20,6 +20,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
 from ghost_api.analysis.analyzer import endpoint_keys
+from ghost_api.analysis.graphql import graphql_payload, split_template
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.url_grouping import looks_like_id
 from ghost_api.capture.filters import REDACTED, is_sensitive_name
@@ -78,7 +79,7 @@ def _input_signature(req: CapturedRequest) -> str:
 class ParamSpec:
     name: str  # Python argument name
     wire: str  # name on the wire
-    location: Literal["path", "query", "body"]
+    location: Literal["path", "query", "body", "variable"]  # variable: a GraphQL variable
     type: str  # Python type, e.g. "int"
     required: bool
     default: str | None = None  # Python literal, when there is one
@@ -131,6 +132,9 @@ class MethodSpec:
     pagination: dict[str, Any] | None = None
     page_param: ParamSpec | None = None
     replayable: bool | None = None
+    # GraphQL: the operation sent with every call (operationName, query, extensions); the
+    # method's "variable" parameters fill in its variables.
+    graphql: dict[str, Any] | None = None
 
     @property
     def required(self) -> list[ParamSpec]:
@@ -227,7 +231,7 @@ def build_spec(
         n = names[ep.key]
         used: set[str] = {"self"}
         params: list[ParamSpec] = []
-        path = ep.path_template
+        path, operation = split_template(ep.path_template)
         for pp in ep.path_params:
             arg = unique(snake(pp.name), used)
             path = path.replace("{" + pp.name + "}", "{" + arg + "}")
@@ -281,7 +285,18 @@ def build_spec(
                     )
                 )
 
-        params += _body_params(reqs, used, page)
+        graphql: dict[str, Any] | None = None
+        if operation:
+            payloads = [
+                p for p in (graphql_payload(r.method, r.url, r.req_body) for r in reqs) if p
+            ]
+            graphql = {k: payloads[-1][k] for k in ("operationName", "query", "extensions")
+                       if payloads and payloads[-1].get(k)}  # fmt: skip
+            graphql.setdefault("operationName", operation)
+            variables = [p["variables"] for p in payloads if isinstance(p.get("variables"), dict)]
+            params += _value_params(variables, used, {}, "variable")
+        else:
+            params += _body_params(reqs, used, page)
 
         headers: dict[str, str] = {}
         sample_headers = reqs[-1].req_headers if reqs else {}
@@ -319,6 +334,7 @@ def build_spec(
                 pagination=page or None,
                 page_param=page_param if page.get("confirmed") else None,
                 replayable=ep.replayable,
+                graphql=graphql,
             )
         )
     spec.models = builder.models
@@ -351,6 +367,16 @@ def _body_params(
     reqs: list[CapturedRequest], used: set[str], page: dict[str, Any]
 ) -> list[ParamSpec]:
     bodies = [b for b in (_json_dict(r.req_body) for r in reqs) if b is not None]
+    return _value_params(bodies, used, page, "body")
+
+
+def _value_params(
+    bodies: list[dict[str, Any]],
+    used: set[str],
+    page: dict[str, Any],
+    location: Literal["body", "variable"],
+) -> list[ParamSpec]:
+    """Parameters from the keys of JSON bodies (or GraphQL variables) seen in requests."""
     if not bodies:
         return []
     values: dict[str, list[Any]] = defaultdict(list)
@@ -371,7 +397,7 @@ def _body_params(
                 ParamSpec(
                     arg,
                     key,
-                    "body",
+                    location,
                     py_type,
                     False,
                     default=literal if (constant or is_page) else None,
@@ -379,12 +405,12 @@ def _body_params(
                 )
             )
         elif is_user_input(key, [str(v) for v in seen]):
-            params.append(ParamSpec(arg, key, "body", py_type, True, example=literal))
+            params.append(ParamSpec(arg, key, location, py_type, True, example=literal))
         else:
             # Varies between captured requests but isn't user input (a setting or
             # filter): optional, defaulting to a value seen working.
             params.append(
-                ParamSpec(arg, key, "body", py_type, False, default=literal, example=literal)
+                ParamSpec(arg, key, location, py_type, False, default=literal, example=literal)
             )
     return params
 

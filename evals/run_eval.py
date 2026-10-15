@@ -185,6 +185,10 @@ def check_rules(
         called = [h for h in hits if h.split(" ", 1)[1].startswith(prefix)]
         if called:
             failed.append(f"{prefix} was requested {len(called)} time(s): {called[0]}")
+    for target, most in checks.get("max_hits", {}).items():  # e.g. only the page's own call
+        count = sum(1 for h in hits if h.split(" ", 1)[1] == target)
+        if count > most:
+            failed.append(f"{target} was requested {count} times (at most {most})")
     for value in checks.get("never_stored", []):
         if any(value in body for body in stored_bodies):
             failed.append(f"personal value {value[:4]}... was stored")

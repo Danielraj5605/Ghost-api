@@ -13,6 +13,7 @@ import re
 
 from pydantic import BaseModel, Field
 
+from ghost_api.analysis.graphql import split_template
 from ghost_api.analysis.models import Endpoint
 from ghost_api.analysis.schema import field_paths
 from ghost_api.analysis.url_grouping import singular
@@ -61,6 +62,9 @@ def path_words(endpoint: Endpoint) -> list[str]:
 
 
 def default_method_name(endpoint: Endpoint) -> str:
+    _, operation = split_template(endpoint.path_template)
+    if operation:  # GraphQL: the operation's own name (GetUser -> get_user)
+        return snake(operation)
     words = path_words(endpoint) or [snake(endpoint.host.split(".")[0])]
     verb = {"GET": "get", "HEAD": "head", "POST": "post"}.get(
         endpoint.method, endpoint.method.lower()
@@ -71,6 +75,9 @@ def default_method_name(endpoint: Endpoint) -> str:
 
 
 def default_model_name(endpoint: Endpoint) -> str:
+    _, operation = split_template(endpoint.path_template)
+    if operation:
+        return f"{pascal(operation)}Response"
     words = path_words(endpoint) or [endpoint.host.split(".")[0]]
     base = pascal("_".join(words))
     if endpoint.path_template.rstrip("/").endswith("}"):

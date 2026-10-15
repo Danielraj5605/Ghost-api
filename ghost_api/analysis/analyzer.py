@@ -9,6 +9,7 @@ from collections import defaultdict
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
+from ghost_api.analysis.graphql import operation_of
 from ghost_api.analysis.models import Endpoint, PathParam, QueryParam
 from ghost_api.analysis.schema import build_schema, parse_json
 from ghost_api.analysis.url_grouping import group_urls, infer_type
@@ -22,10 +23,11 @@ def analyze(requests: list[CapturedRequest]) -> list[Endpoint]:
     if not requests:
         return []
     matches = group_urls([(r.method, r.url) for r in requests])
+    templates = _templates(requests, matches)
 
     grouped: dict[tuple[str, str, str], list[int]] = defaultdict(list)
     for i, m in enumerate(matches):
-        grouped[(m.method, m.host, m.template)].append(i)
+        grouped[(m.method, m.host, templates[i])].append(i)
 
     endpoints: list[Endpoint] = []
     for (method, host, template), idxs in grouped.items():
@@ -61,7 +63,17 @@ def analyze(requests: list[CapturedRequest]) -> list[Endpoint]:
 def endpoint_keys(requests: list[CapturedRequest]) -> list[str]:
     """The Endpoint.key each request belongs to (same grouping as analyze())."""
     matches = group_urls([(r.method, r.url) for r in requests])
-    return [f"{m.method} {m.host}{m.template}" for m in matches]
+    templates = _templates(requests, matches)
+    return [f"{m.method} {m.host}{t}" for m, t in zip(matches, templates, strict=True)]
+
+
+def _templates(requests: list[CapturedRequest], matches: list[Any]) -> list[str]:
+    """Each request's template; a named GraphQL operation gets its own: /graphql#GetUser."""
+    out = []
+    for req, m in zip(requests, matches, strict=True):
+        op = operation_of(req.method, req.url, req.req_body)
+        out.append(f"{m.template}#{op}" if op else m.template)
+    return out
 
 
 def classify_query_params(urls: list[str]) -> list[QueryParam]:

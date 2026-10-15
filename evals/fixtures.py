@@ -173,6 +173,38 @@ def prompt_injection() -> dict[str, Route]:
     }
 
 
+def graphql() -> dict[str, Route]:
+    users = {str(i): {"id": str(i), "name": f"User {i}"} for i in range(1, 6)}
+    posts = [{"id": i, "title": f"Post {i}", "likes": i} for i in range(1, 21)]
+
+    def endpoint(_q: dict[str, list[str]], h: dict[str, str]) -> Reply:
+        request = json.loads(h.get("__body__") or "{}")
+        op, variables = request.get("operationName"), request.get("variables") or {}
+        if op == "GetUser":
+            return as_json({"data": {"user": users.get(str(variables.get("id")))}})
+        if op == "ListPosts":
+            first = int(variables.get("first", 5))
+            return as_json({"data": {"posts": posts[:first]}})
+        if op == "LikePost":
+            return as_json({"data": {"likePost": {"ok": True}}})
+        return as_json({"errors": [{"message": "unknown operation"}]}, 400)
+
+    def call(op: str, query: str, variables: dict[str, Any]) -> str:
+        body = json.dumps({"operationName": op, "query": query, "variables": variables})
+        options = f"{{method: 'POST', headers: {{'content-type': 'application/json'}}, body: {json.dumps(body)}}}"  # noqa: E501
+        return f"fetch('/graphql', {options}).then(r => r.json()).then(show);"
+
+    get_user = "query GetUser($id: ID!) { user(id: $id) { id name } }"
+    list_posts = "query ListPosts($first: Int) { posts(first: $first) { id title likes } }"
+    like = "mutation LikePost($id: ID!) { likePost(id: $id) { ok } }"
+    script = "\n".join(
+        [call("GetUser", get_user, {"id": str(i)}) for i in (1, 2, 3)]
+        + [call("ListPosts", list_posts, {"first": n}) for n in (5, 10)]
+        + [call("LikePost", like, {"id": "1"})]
+    )
+    return {"/": page(script), "/graphql": endpoint}
+
+
 FIXTURES: dict[str, Callable[[], dict[str, Route]]] = {
     "offset-paging": offset_paging,
     "cursor-paging": cursor_paging,
@@ -184,6 +216,7 @@ FIXTURES: dict[str, Callable[[], dict[str, Route]]] = {
     "bot-wall": bot_wall,
     "personal-data": personal_data,
     "prompt-injection": prompt_injection,
+    "graphql": graphql,
 }
 
 
@@ -208,6 +241,16 @@ class FixtureServer:
         self.httpd.server_close()
 
 
+def _operation(body: str) -> str:
+    """'#GetUser' for a GraphQL request body, so the hit log shows which operation ran."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return ""
+    name = data.get("operationName") if isinstance(data, dict) else None
+    return f"#{name}" if isinstance(name, str) else ""
+
+
 def serve(name: str, port: int = 0) -> FixtureServer:
     routes = FIXTURES[name]()
     hits: list[str] = []
@@ -215,12 +258,15 @@ def serve(name: str, port: int = 0) -> FixtureServer:
     class Handler(BaseHTTPRequestHandler):
         def _answer(self) -> None:
             url = urlsplit(self.path)
-            hits.append(f"{self.command} {url.path}")
+            length = int(self.headers.get("Content-Length") or 0)
+            sent = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+            hits.append(f"{self.command} {url.path}{_operation(sent)}")
             route = routes.get(url.path)
             if route is None:
                 status, headers, body = 404, {"Content-Type": "text/plain"}, b"not found"
             else:
                 headers_in = {k.lower(): v for k, v in self.headers.items()}
+                headers_in["__body__"] = sent
                 status, headers, body = route(parse_qs(url.query), headers_in)
             self.send_response(status)
             for key, value in headers.items():

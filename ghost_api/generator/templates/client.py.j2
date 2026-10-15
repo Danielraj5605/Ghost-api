@@ -127,7 +127,18 @@ def _error_for(status: int, message: str, body: Any = None) -> {{ spec.error_cla
                 {{ c.wire | pyrepr }}: self._credential({{ c.arg | pyrepr }}),
 {% endfor %}
             },
-{% if m.by_location('body') %}
+{% if m.graphql %}
+            json={
+{% for key, value in m.graphql.items() %}
+                {{ key | pyrepr }}: {{ value | pyrepr }},
+{% endfor %}
+                "variables": _compact({
+{% for p in m.by_location('variable') %}
+                    {{ p.wire | pyrepr }}: {{ p.value_expr }},
+{% endfor %}
+                }),
+            },
+{% elif m.by_location('body') %}
             json={
 {% for p in m.by_location('body') %}
                 {{ p.wire | pyrepr }}: {{ p.value_expr }},
@@ -440,6 +451,11 @@ class {{ spec.async_class }}(_Base):
                     return self._result(response)
             await asyncio.sleep(delay)
             attempt += 1
+
+
+def _compact(values: dict[str, Any]) -> dict[str, Any]:
+    """GraphQL variables without the ones left out (None)."""
+    return {k: v for k, v in values.items() if v is not None}
 
 
 def _parse_json(text: str) -> Any:

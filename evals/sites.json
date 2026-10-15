@@ -162,5 +162,25 @@
         "/admin"
       ]
     }
+  },
+  {
+    "name": "graphql",
+    "url": "local:fixture:graphql",
+    "goal": "look up users and list posts",
+    "expected": [
+      "POST /graphql#GetUser",
+      "POST /graphql#ListPosts"
+    ],
+    "forbidden": [
+      "POST /graphql#LikePost"
+    ],
+    "checks": {
+      "max_hits": {
+        "/graphql#LikePost": 1
+      }
+    },
+    "real": [
+      "POST /graphql#LikePost"
+    ]
   }
 ]
