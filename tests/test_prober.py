@@ -46,6 +46,11 @@ def fake_api(request: httpx.Request) -> httpx.Response:
         if q.get("apikey") != "fake-removed":
             return httpx.Response(401, json={"error": "key"})
         return httpx.Response(200, json={"items": [{"id": 1}]})
+    if url.path == "/api/timeline":  # cursor pagination; the third page is the last
+        cur = q.get("cursor", "")
+        nxt = {"": "p2", "p2": "p3"}.get(cur)
+        ids = {"": [1, 2], "p2": [3, 4], "p3": [5]}.get(cur, [])
+        return httpx.Response(200, json={"items": [{"id": i} for i in ids], "next_cursor": nxt})
     if url.path == "/api/feed":  # cursor pagination
         cur = q.get("cursor", "start")
         ids = {"start": [1, 2], "c2": [3, 4]}.get(cur, [])
@@ -175,6 +180,15 @@ def test_cursor_pagination() -> None:
     assert report.pagination is not None and report.pagination["style"] == "cursor"
     assert report.pagination["confirmed"]
     assert any("cursor=c2" in str(r.url) for r in seen)
+
+
+def test_cursor_paging_is_found_when_the_newest_sample_is_the_last_page() -> None:
+    replayer, seen = make_replayer()
+    samples = [raw(f"/api/timeline?cursor={c}") for c in ("", "p2", "p3")]
+    report = Prober(replayer).probe(Endpoint("GET", HOST, "/api/timeline"), samples)
+    assert report.pagination is not None and report.pagination["style"] == "cursor"
+    assert report.pagination["confirmed"]
+    assert len(seen) <= 6  # a couple of extra replays at most
 
 
 def test_pagination_in_json_body() -> None:

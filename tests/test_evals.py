@@ -163,3 +163,38 @@ def test_demo_shop_endpoints_are_reachable_and_the_cart_is_never_touched() -> No
         elements = prompt.split("Elements:", 1)[1]
         assert "Add to cart" not in elements and "Log out" not in elements
     assert "POST /api/cart" not in ShopHandler.calls
+
+
+def test_check_rules_explain_each_failure() -> None:
+    from evals.run_eval import check_rules
+
+    paged = Endpoint("GET", "h", "/api/items")
+    paged.pagination = {"style": "offset"}
+    keyed = Endpoint("GET", "h", "/api/orders")
+    keyed.required_headers = ["X-Api-Key"]
+    checks = {
+        "status": "captured",
+        "never_hit": ["/api/private"],
+        "never_stored": ["jane@x.test"],
+        "dropped": ["response-too-large"],
+        "pagination": {"GET /api/items": "offset"},
+        "required_header": {"GET /api/orders": "x-api-key"},
+    }
+    ok = check_rules(checks, "captured", [paged, keyed], "h", ["GET /api/public"], ["{}"],
+                     {"response-too-large": 1})  # fmt: skip
+    assert ok == []
+    bad = check_rules(checks, "failed", [], "h", ["GET /api/private/users"], ["jane@x.test"], {})
+    assert len(bad) == 6 and any("/api/private was requested" in b for b in bad)
+
+
+def test_the_gate_lists_every_regression() -> None:
+    from evals.run_eval import Result, gate
+
+    good = Result("a", "captured", ["GET /x"], 1.0, 1.0, [], 1, 0, 0, 1.0, 0, 10, 300, [])
+    bad = Result("b", "captured", [], 0.5, 0.5, ["GET /y"], 0, 0, 0, None, 0, 999, 300, [],
+                 checks_failed=["status 'failed'"])  # fmt: skip
+    limits = {"min_recall": 1.0, "min_precision": 1.0, "max_failed_checks": 0,
+              "max_seconds_per_site": 180}  # fmt: skip
+    assert gate([good], limits) == []
+    problems = gate([good, bad], limits)
+    assert len(problems) == 4 and all(p.startswith("b:") for p in problems)

@@ -30,6 +30,10 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
   passes `mypy --strict`.
 - `ghost-api mock SITE`: a local copy of a site's API from captured replies.
 
+- A quality gate: ten local test sites with known answers (paging, auth headers, robots
+  rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI
+  against `evals/thresholds.json`; a weekly live evaluation.
+
 ### Changed
 - The package is published as `ghost-api-cli` (the name `ghost-api` was taken on PyPI).
   The command is still `ghost-api`.
@@ -39,6 +43,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - Endpoints found by earlier runs are kept until a refresh finds them gone.
 
 ### Fixed
+- Cursor paging was missed when the newest captured page was the last one (found by the
+  quality gate).
+- Bot-protection pages are detected without the agent too (`--no-agent`).
 - The 28 issues in `ghost_api_issues_and_fixes.md`.
 
 ## [0.1.0] - 2026-10-15

@@ -37,12 +37,32 @@ jobs:
       - name: Lint
         run: |
           python -m ruff check .
-          python -m ruff format --check ghost_api tests
+          python -m ruff format --check ghost_api tests evals
       - name: Type check
         run: python -m mypy ghost_api
       - name: Tests
         # No LLM keys are needed: the agent is driven by scripted fakes in tests.
         run: python -m pytest -q
+
+  evaluation:
+    name: Quality gate (local test sites, no LLM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: |
+          python -m pip install -e ".[dev]" -c requirements.lock
+          python -m playwright install --with-deps chromium
+      - name: Score the local corpus against evals/thresholds.json
+        run: python -m evals.run_eval --suite local --no-agent --check --results-dir eval-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: eval-results/
 
   frontend:
     name: Dashboard and report viewer

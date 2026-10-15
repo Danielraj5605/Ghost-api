@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from ghost_api.agent.orchestrator import AgentResult, Explorer, StepRecord
 from ghost_api.analysis.analyzer import analyze, endpoint_keys
+from ghost_api.analysis.detectors import is_bot_challenge
 from ghost_api.analysis.exposure import exposures, summary_line
 from ghost_api.analysis.models import Endpoint
 from ghost_api.browser.driver import BrowserSession
@@ -258,10 +259,14 @@ class Session:
                 should_stop=self.stop,
             ).run()
 
-    def visit(self, scrolls: int) -> None:
-        """Load the start page and scroll, without the agent (no LLM)."""
+    def visit(self, scrolls: int) -> str | None:
+        """Load the start page and scroll, without the agent (no LLM). Returns the page
+        title when it is a bot-protection page (nothing more is done there), else None."""
         with self.browser() as browser:
             browser.goto(self.start_url)
+            snapshot = browser.snapshot(self.host, self.robots)
+            if is_bot_challenge(snapshot.title, snapshot.text):
+                return snapshot.title  # never try to get past bot protection (NFR-19)
             for _ in range(scrolls):
                 if self.stop is not None and self.stop():
                     break
@@ -269,6 +274,7 @@ class Session:
             shoot = self._shooter(browser)
             if shoot:
                 shoot("visit")
+        return None
 
     def replan(self, sub_goal: str) -> None:
         """Verification sends the agent back with a focused sub-goal (e.g. fresh session)."""
@@ -349,7 +355,9 @@ def explore_site(
     s.phase("explore")
     try:
         if not use_agent:
-            s.visit(AUTO_SCROLLS)
+            challenge = s.visit(AUTO_SCROLLS)
+            if challenge is not None:
+                return "bot-protection", f"bot-protection page detected: {challenge!r}"
             if s.stop is not None and s.stop():
                 return "interrupted", "stopped by user"
             return "captured", "--no-agent: scrolled the page"

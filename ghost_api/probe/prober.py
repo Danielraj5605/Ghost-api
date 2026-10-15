@@ -75,7 +75,7 @@ class Prober:
             baseline = self._baseline(endpoint, sample, report)
             if baseline is None:
                 return report
-            self._pagination(endpoint, sample, baseline, report)
+            self._pagination(endpoint, sample, baseline, report, samples)
             self._headers(endpoint, sample, baseline, report)
             self._secret_params(endpoint, sample, baseline, report)
         except ReplayRefused as exc:
@@ -108,7 +108,12 @@ class Prober:
         return result if ok else None
 
     def _pagination(
-        self, ep: Endpoint, sample: RawRequest, baseline: ReplayResult, report: ProbeReport
+        self,
+        ep: Endpoint,
+        sample: RawRequest,
+        baseline: ReplayResult,
+        report: ProbeReport,
+        samples: list[RawRequest] | None = None,
     ) -> None:
         query = dict(parse_qsl(urlsplit(sample.url).query, keep_blank_values=True))
         body = _json_body(sample)
@@ -122,6 +127,17 @@ class Prober:
         next_value: str | int | None
         if guess.style == "cursor":
             next_value = detectors.next_cursor(baseline.body)
+            if next_value is None:
+                # The newest sample is often the last page (no next cursor): an earlier one
+                # that still had a next page shows the paging just as well.
+                earlier = self._page_with_cursor(sample, samples or [])
+                if earlier is not None:
+                    sample, baseline = earlier
+                    query = dict(parse_qsl(urlsplit(sample.url).query, keep_blank_values=True))
+                    body = _json_body(sample)
+                    source = query if guess.location == "query" else (body or {})
+                    current = source.get(guess.param)
+                    next_value = detectors.next_cursor(baseline.body)
             if next_value is None:
                 report.hypotheses.append(
                     Hypothesis(ep.key, text, "inconclusive", "no next cursor in the response")
@@ -152,6 +168,20 @@ class Prober:
             }
         if result.ok and result.captured is not None and self.on_sample:
             self.on_sample(result.captured, probe)
+
+    def _page_with_cursor(
+        self, newest: RawRequest, samples: list[RawRequest]
+    ) -> tuple[RawRequest, ReplayResult] | None:
+        """Replay at most two earlier samples to find a page that has a next cursor."""
+        tried = 0
+        for sample in reversed(samples):
+            if sample.url == newest.url or not is_replayable(sample) or tried >= 2:
+                continue
+            tried += 1
+            result = self.replayer.send(sample)
+            if result.ok and detectors.next_cursor(result.body) is not None:
+                return sample, result
+        return None
 
     def _headers(
         self, ep: Endpoint, sample: RawRequest, baseline: ReplayResult, report: ProbeReport

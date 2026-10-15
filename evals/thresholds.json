@@ -1,0 +1,11 @@
+{
+  "_doc": "Release gate for `python -m evals.run_eval --suite local --no-agent --check`. A run fails when any site is below these. Raise them as Ghost API improves; never lower them to make a change pass.",
+  "local": {
+    "min_recall": 1.0,
+    "min_precision": 1.0,
+    "max_forbidden_generated": 0,
+    "max_failed_checks": 0,
+    "max_seconds_per_site": 180,
+    "max_peak_mb": 2000
+  }
+}
