@@ -315,7 +315,10 @@ Ghost API improves with use:
   (for web pages, call it from your own server), async page iterators, and Node tests; passes
   `tsc --strict`
 
-**Not yet:** GraphQL/WebSocket APIs, automatic change detection.
+- **GraphQL:** each named operation becomes its own typed method (`get_user(id)`), with the
+  query built in and the variables as arguments; mutations are never replayed or generated
+
+**Not yet:** WebSocket and server-sent-event APIs.
 
 ---
 

@@ -38,6 +38,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - `ghost-api import FILE.har`: map an API from a HAR file recorded in your own browser
   (sites behind a login or a bot check). Same filters as live capture: secrets redacted and
   personal data hidden before storing; `--offline` sends nothing to the site.
+- GraphQL: each named operation is its own endpoint and client method, with the variables
+  as typed arguments. Mutations (also inside batches, and persisted queries whose name
+  doesn't say they read) are never replayed or generated.
 - A quality gate: ten local test sites with known answers (paging, auth headers, robots
   rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI
   against `evals/thresholds.json`; a weekly live evaluation.
