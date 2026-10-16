@@ -215,7 +215,7 @@ def first_run(db: Path, site: str, requests: list[CapturedRequest]) -> None:
 
 @pytest.fixture
 def cli(monkeypatch: pytest.MonkeyPatch) -> CliRunner:
-    monkeypatch.setattr("ghost_api.cli.default_providers", lambda: [])  # no LLM, no quota
+    # tests/conftest.py removes every LLM key, so refreshes here never call a provider.
     return CliRunner()
 
 

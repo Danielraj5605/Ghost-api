@@ -169,7 +169,10 @@ def test_a_real_run_inside_the_session(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GHOST_API_DB", str(tmp_path / "ghost_api.db"))
     buffer = io.StringIO()
-    monkeypatch.setattr(cli, "console", Console(file=buffer, width=400, color_system=None))
+    # Every command module prints through the one shared console: send it to a buffer.
+    monkeypatch.setattr(cli.console, "_file", buffer)
+    monkeypatch.setattr(cli.console, "_width", 400)
+    monkeypatch.setattr(cli.console, "_color_system", None)
     shop = serve_shop(0)
     url = f"http://127.0.0.1:{shop.server_address[1]}/"
     try:

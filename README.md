@@ -773,7 +773,10 @@ Excerpt from a real `report.md`:
 ```
 ghost-api/
 |-- ghost_api/
-|   |-- cli.py              # Commands: run, refresh, generate, verify, report, inspect, doctor, ui
+|   |-- cli/                # The command line: explore, client, data and manage commands
+|   |-- api.py              # The same features as Python functions
+|   |-- workflows.py        # Run and refresh, shared by the CLI and the API
+|   |-- drift.py            # Client versions and API changes
 |   |-- pipeline.py         # A run from start to finish, as events (no printing)
 |   |-- events.py           # The events every interface shows (stored for replay)
 |   |-- ui/terminal.py      # Live terminal UI (Rich)
