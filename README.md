@@ -710,6 +710,9 @@ output/quotes.toscrape.com/scroll/
 +-- report.html                      # The same and more, as one shareable offline page
 ```
 
+**Tests that run anywhere.** The generated tests replay recorded replies (`cassettes.json`)
+by default, so they pass offline and in CI; `GHOST_API_LIVE=1` runs them against the real API.
+
 **Use the client the way you prefer.** Copy the loose files into a project, or install the
 package (`pip install output/quotes.toscrape.com/scroll/package/python`, or
 `npm install .../package/typescript`); the import is the same either way. Each package has a

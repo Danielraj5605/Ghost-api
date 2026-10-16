@@ -42,6 +42,21 @@ npm install ./output/quotes.toscrape.com/scroll/package/typescript
 The client is made for Node 18+. In a web page, call it from your own server: browsers
 block reading other sites' replies without CORS and don't let code set the User-Agent.
 
+## Tests that run anywhere
+
+Each client comes with `cassettes.json`: replies recorded while exploring (secrets redacted,
+personal data hidden). The generated tests replay them by default, so they pass offline, in
+CI and when the site is down, and always give the same answer:
+
+```bash
+pytest test_quotes_toscrape_client.py                    # offline, from the recordings
+GHOST_API_LIVE=1 pytest test_quotes_toscrape_client.py   # against the real API
+node --test quotes_toscrape_client.test.ts               # TypeScript, same rule
+```
+
+Ghost API's own verification always tests live. To check the real API on a schedule
+without the browser, use `ghost-api diff SITE --live` (or the GitHub Action).
+
 ## Credentials
 
 Endpoints that need a key or token get a constructor argument, read from an environment

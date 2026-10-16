@@ -147,9 +147,25 @@ def generate_from(
 
         info = drift.version_for(store, domain, spec)
         spec.version, spec.changelog = info.version, drift.changelog(spec, info)
-    if lang == "typescript":
-        return GenerationResult(write_typescript(spec, out_root / domain), spec, plan, info)
-    return GenerationResult(write(spec, out_root / domain), spec, plan, info)
+    folder = out_root / domain
+    client = write_typescript(spec, folder) if lang == "typescript" else write(spec, folder)
+    _write_cassettes(spec, requests, folder, lang)
+    return GenerationResult(client, spec, plan, info)
+
+
+def _write_cassettes(
+    spec: ClientSpec, requests: list[CapturedRequest], folder: Path, lang: str
+) -> None:
+    """Recorded replies next to the tests, so they run offline (generator/cassettes.py)."""
+    from ghost_api.generator import cassettes
+
+    text = cassettes.dumps(cassettes.build(spec, requests))
+    targets = [folder / cassettes.FILE]
+    if lang == "python":
+        targets.append(folder / "package" / "python" / "tests" / cassettes.FILE)
+    for target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
 
 
 def generate_client(

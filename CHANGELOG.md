@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- Generated tests run offline by default from recorded replies (`cassettes.json`, secrets
+  redacted, personal data hidden), in Python and TypeScript; `GHOST_API_LIVE=1` tests the
+  real API. Verification always runs live.
 - **Ghost API for AI assistants:** `ghost-api mcp --explore` lets Claude (or any MCP
   client) be the explorer, with no LLM key: it reads each page and decides, Ghost API acts
   under its rules, maps and tests the API, and writes the client, report and version.

@@ -42,7 +42,8 @@ def run_tests(test_path: Path, env: dict[str, str] | None = None) -> list[TestOu
             "-q", "-p", "no:cacheprovider", f"--junitxml={report}",
             f"--rootdir={test_path.parent}", "-o", "addopts=",
         ]  # fmt: skip
-        full_env = {**os.environ, **(env or {})}
+        # Verification checks the real API, never the recorded replies (cassettes.json).
+        full_env = {**os.environ, **(env or {}), "GHOST_API_LIVE": "1"}
         try:
             proc = subprocess.run(
                 cmd,
@@ -75,7 +76,7 @@ def run_node_tests(test_path: Path, env: dict[str, str] | None = None) -> list[T
             proc = subprocess.run(
                 cmd,
                 cwd=test_path.parent,
-                env={**os.environ, **(env or {})},
+                env={**os.environ, **(env or {}), "GHOST_API_LIVE": "1"},
                 capture_output=True,
                 text=True,
                 timeout=TIMEOUT_S,
