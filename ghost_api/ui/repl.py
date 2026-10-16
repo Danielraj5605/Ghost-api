@@ -63,6 +63,8 @@ COMMANDS = [
     Command("/diff", "/diff [SITE] [--live] [--history]",
             "What changed in the site's API since the last client version",
             cli="diff", needs_site=True),
+    Command("/explain", "/explain [SITE]", "A plain-language summary of a site's API",
+            cli="explain", needs_site=True),
     Command("/generate", "/generate [SITE] [--lang typescript]", "Regenerate the client",
             cli="generate", needs_site=True),
     Command("/serve", "/serve [SITE]", "Serve sites as a local REST API (Ctrl+C stops it)",

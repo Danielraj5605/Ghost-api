@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- `ghost-api adopt PATH`: finds hand-written calls to hidden APIs in a codebase and the
+  client method that replaces each one (JSON for an assistant to apply).
+- `ghost-api verify-spec SPEC SITE`: a published OpenAPI spec compared with reality
+  (undocumented endpoints, documented ones never seen, reply fields that differ).
+- `ghost-api explain SITE`: a plain-language summary of a mapped API. Shell completion
+  (`--install-completion`).
 - Generated tests run offline by default from recorded replies (`cassettes.json`, secrets
   redacted, personal data hidden), in Python and TypeScript; `GHOST_API_LIVE=1` tests the
   real API. Verification always runs live.

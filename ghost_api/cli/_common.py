@@ -29,7 +29,7 @@ from ghost_api.ui.terminal import (
 
 app = typer.Typer(
     help="Ghost API: turn any website into a typed, tested API client.",
-    add_completion=False,
+    add_completion=True,
 )
 console = Console()
 _options = {"plain": False, "json": False}

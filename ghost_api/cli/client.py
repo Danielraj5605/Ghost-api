@@ -23,6 +23,7 @@ from ghost_api.cli._common import (
     json_out,
 )
 from ghost_api.config import (
+    default_db_path,
     state_dir,
 )
 from ghost_api.export import write_exports
@@ -340,3 +341,141 @@ def mock(
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     uvicorn.run(create_mock_app(routes, domain, hosts), host="127.0.0.1", port=port,
                 log_level="warning")  # fmt: skip
+
+
+@app.command()
+def adopt(
+    path: Annotated[Path, typer.Argument(help="The codebase to scan.")] = Path("."),
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Find hand-written calls to websites' hidden APIs in a codebase, and the typed client
+    method that replaces each one (for sites Ghost API has explored). Nothing is edited."""
+    from ghost_api.adopt import adopt as find_calls
+    from ghost_api.adopt import to_json
+
+    database = db or default_db_path()
+    store = Store(database) if database.exists() else None
+    try:
+        reports = find_calls(path.resolve(), store)
+    finally:
+        if store is not None:
+            store.close()
+    if _options["json"]:
+        json_out({"path": str(path.resolve()), "hosts": to_json(reports)})
+        return
+    if not reports:
+        console.print("No HTTP calls with a literal URL found.")
+        return
+    total = sum(len(r.calls) for r in reports)
+    console.print(f"[bold]{total} call(s) to {len(reports)} host(s)[/]")
+    for report in reports:
+        known = f"explored as {report.site}" if report.site else "not explored yet"
+        console.print(f"\n[bold {ACCENT}]{report.host}[/]  [dim]{known}[/]")
+        table = Table(box=None, pad_edge=False, show_header=False)
+        for col in ("Where", "Call", "Replace with"):
+            table.add_column(col, overflow="fold")
+        for call in report.calls:
+            table.add_row(
+                f"[dim]{call.file}:{call.line}[/]",
+                f"{call.method} {call.url}",
+                f"[green]{call.replacement}[/]" if call.replacement else "[dim]-[/]",
+            )
+        console.print(table)
+        console.print(f"  [dim]Next: {report.next_step}[/]")
+
+
+@app.command("verify-spec")
+def verify_spec(
+    spec_file: Annotated[Path, typer.Argument(help="A published OpenAPI file (YAML or JSON).")],
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Compare a published OpenAPI spec with what the site really does: undocumented
+    endpoints, documented ones never seen, and reply fields that differ."""
+    from ghost_api.specdiff import SpecError, compare, load_spec, to_json
+
+    try:
+        spec = load_spec(spec_file)
+    except SpecError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=exitcodes.USAGE) from exc
+    with Store(_need_db(db)) as store:
+        domain = _site(store, domain)
+        checks = compare(spec, store.current_endpoints(domain))
+    if _options["json"]:
+        json_out({"site": domain, "spec": str(spec_file), "endpoints": to_json(checks)})
+        return
+    counts = {s: sum(c.status == s for c in checks) for s in
+              ("documented", "undocumented", "not seen")}  # fmt: skip
+    console.print(
+        f"[bold]{domain}[/] vs {spec_file.name}: {counts['documented']} documented and seen, "
+        f"[yellow]{counts['undocumented']} undocumented[/], "
+        f"[dim]{counts['not seen']} documented but not seen[/]"
+    )
+    for check in checks:
+        style = {"documented": "green", "undocumented": "yellow", "not seen": "dim"}[check.status]
+        console.print(f"  [{style}]{check.status:<13}[/] {check.endpoint}", highlight=False)
+        if check.extra_fields:
+            console.print(f"      [yellow]replies also have:[/] {', '.join(check.extra_fields)}")
+        if check.missing_fields:
+            console.print(
+                f"      [dim]spec lists, never seen:[/] {', '.join(check.missing_fields)}"
+            )
+
+
+@app.command()
+def explain(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """A plain-language summary of a site's API for someone new to it (no LLM)."""
+    from ghost_api.generator import site_spec
+
+    with Store(_need_db(db)) as store:
+        domain = _site(store, domain)
+        endpoints = store.current_endpoints(domain)
+        versions = store.api_versions(domain)
+        runs = store.list_runs(domain)
+        try:
+            spec = site_spec(store, domain)
+            names = {m.endpoint_key: m.name for m in spec.methods}
+            class_name = spec.class_name
+        except NothingToGenerate:
+            names, class_name = {}, None
+    if not endpoints:
+        console.print(f"Nothing is known about {domain} yet. Run `ghost-api run` first.")
+        raise typer.Exit(code=exitcodes.FAILED)
+    summaries = [endpoint_summary(e, domain) for e in endpoints]
+    login = {s["auth_type"] for s in summaries if s.get("auth_type") not in (None, "none")}
+    if _options["json"]:
+        json_out({"site": domain, "endpoints": summaries, "client": class_name,
+                  "version": versions[0]["version"] if versions else None})  # fmt: skip
+        return
+    last = runs[0].started_at[:10] if runs else "?"
+    version = f", client {versions[0]['version']}" if versions else ""
+    console.print(f"[bold]{domain}[/]  [dim]explored {last}{version}[/]\n")
+    console.print(
+        f"It has {len(endpoints)} API endpoint{'s' if len(endpoints) != 1 else ''}"
+        + (
+            f"; some need a login or key ({', '.join(sorted(login))})."
+            if login
+            else "; none needs a login."
+        )  # fmt: skip
+    )
+    for ep, s in zip(endpoints, summaries, strict=True):
+        fields = ", ".join(s.get("fields") or []) or "data"
+        paging = (s.get("pagination") or {}).get("style")
+        how = f", page by page ({paging})" if paging else ""
+        state = {"verified": "works", "failed": "failing", "unverified": "not tested"}.get(
+            str(s.get("status")), str(s.get("status") or "seen")
+        )
+        method = names.get(ep.key)
+        call = f"  -> {class_name}.{method}()" if method and class_name else ""
+        console.print(
+            f"  [bold]{s['method']} {s['path']}[/]: returns {fields}{how} [dim]({state})[/]{call}",
+            highlight=False,
+        )
+    console.print(
+        f"\n[dim]Data without code: ghost-api fetch {domain}   ·   "
+        f"client: ghost-api generate {domain}   ·   changes: ghost-api diff {domain} --live[/]"
+    )

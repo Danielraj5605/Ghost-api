@@ -5,6 +5,19 @@ also accepts `--json` (result as JSON on stdout) and `--plain` (line-by-line out
 anywhere on the line. Exit codes: 0 done, 1 failed, 2 wrong usage or setup,
 3 not allowed by the site, 130 stopped with Ctrl+C.
 
+## `ghost-api adopt`
+
+Find hand-written calls to websites' hidden APIs in a codebase, and the typed client
+method that replaces each one (for sites Ghost API has explored). Nothing is edited.
+
+```
+ghost-api adopt PATH [OPTIONS]
+```
+
+| Option | What it does |
+|---|---|
+| `--db` | SQLite database path. |
+
 ## `ghost-api diff`
 
 What changed in a site's API since the last client version, and what it means.
@@ -26,6 +39,18 @@ ghost-api diff DOMAIN [OPTIONS]
 
 Check your setup: Python, the browser, the project, the database and each LLM key
 (one tiny call per provider).
+
+## `ghost-api explain`
+
+A plain-language summary of a site's API for someone new to it (no LLM).
+
+```
+ghost-api explain DOMAIN [OPTIONS]
+```
+
+| Option | What it does |
+|---|---|
+| `--db` | SQLite database path. |
 
 ## `ghost-api fetch`
 
@@ -301,6 +326,19 @@ ghost-api verify DOMAIN [OPTIONS]
 |---|---|
 | `--out` | Folder for generated clients. (default: `output`) |
 | `--lang` | Client language: python or typescript. (default: `python`) |
+| `--db` | SQLite database path. |
+
+## `ghost-api verify-spec`
+
+Compare a published OpenAPI spec with what the site really does: undocumented
+endpoints, documented ones never seen, and reply fields that differ.
+
+```
+ghost-api verify-spec SPEC_FILE DOMAIN [OPTIONS]
+```
+
+| Option | What it does |
+|---|---|
 | `--db` | SQLite database path. |
 
 ## `ghost-api watch`

@@ -57,6 +57,37 @@ node --test quotes_toscrape_client.test.ts               # TypeScript, same rule
 Ghost API's own verification always tests live. To check the real API on a schedule
 without the browser, use `ghost-api diff SITE --live` (or the GitHub Action).
 
+## In code you already have
+
+```bash
+ghost-api adopt .                      # hand-written calls to hidden APIs, by host
+ghost-api adopt . --json               # the same, for an assistant to apply the edits
+```
+
+`adopt` scans Python and JavaScript/TypeScript files for HTTP calls with a hard-coded URL
+(`fetch`, `axios`, `requests`, `httpx`...). For hosts Ghost API has explored it shows the
+client method that replaces each call; for the others, how to map them. Nothing is edited.
+
+## When there are docs, check them
+
+```bash
+ghost-api verify-spec openapi.yaml example.com
+```
+
+Compares a published OpenAPI spec with what the site really does: endpoints the site uses
+but the spec doesn't mention, documented endpoints never seen, and reply fields that differ.
+
+## Other languages
+
+Python and TypeScript clients are generated and tuned by Ghost API. For Go, Java, C#,
+Rust and others, feed the verified `openapi.yaml` to a standard generator, e.g.
+`npx @openapitools/openapi-generator-cli generate -i openapi.yaml -g go -o client-go`.
+
+## Understanding a site quickly
+
+`ghost-api explain example.com` prints a plain-language summary: each endpoint, what it
+returns, how it pages, whether it needs a login, and the client method for it.
+
 ## Credentials
 
 Endpoints that need a key or token get a constructor argument, read from an environment
