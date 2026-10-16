@@ -13,6 +13,7 @@ import pytest
 from ghost_api.generator.package import curl_example, example_value
 from ghost_api.generator.python_gen import write
 from ghost_api.generator.ts_gen import write_typescript
+from tests.fake_secrets import API_KEY
 from tests.test_generator import spec_for
 
 NPX = shutil.which("npx")
@@ -103,5 +104,5 @@ def test_curl_examples_use_real_values_and_never_secrets() -> None:
     search = curl_example(spec, by_name["post_search"])
     assert "-X POST" in search and "Content-Type: application/json" in search
     for method in spec.methods:
-        assert "fake-removed" not in curl_example(spec, method).replace("API_KEY", "")
+        assert API_KEY not in curl_example(spec, method)  # the value; $..._API_KEY is fine
     assert example_value("'dune'") == "dune" and example_value("12") == 12
