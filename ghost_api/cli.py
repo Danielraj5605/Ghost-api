@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ghost_api import __version__, exitcodes, watch
+from ghost_api import __version__, exitcodes, watch, workflows
 from ghost_api.config import (
     Settings,
     check_language,
@@ -30,13 +30,8 @@ from ghost_api.config import (
     state_dir,
 )
 from ghost_api.events import (
-    ClientGenerated,
-    EndpointsUpdated,
     EventBus,
-    NetworkSummary,
     Notice,
-    RunFinished,
-    RunStarted,
 )
 from ghost_api.export import tabular, write_exports
 from ghost_api.export.site_data import endpoint_summary
@@ -46,23 +41,20 @@ from ghost_api.generator.python_gen import GenerationError
 from ghost_api.llm.doctor import check_providers
 from ghost_api.llm.gateway import LLMGateway
 from ghost_api.llm.providers import default_providers
-from ghost_api.memory.knowledge import load_memory, memory_prompt
 from ghost_api.memory.store import RunRow, Store, StoreError
 from ghost_api.net import RateLimiter
 from ghost_api.pipeline import (
     RunOptions,
     client_event,
-    explore_site,
     finish,
     open_session,
-    refresh_site,
     robots_policy,
     round_event,
 )
 from ghost_api.probe.replay import ReplayRefused
 from ghost_api.project import ProjectError, default_map, find_project
 from ghost_api.runtime import OperationError, SiteRuntime
-from ghost_api.site import SiteAmbiguous, resolve_site, site_host, site_key
+from ghost_api.site import SiteAmbiguous, resolve_site, site_key
 from ghost_api.ui import keys
 from ghost_api.ui.terminal import (
     ACCENT,
@@ -201,28 +193,8 @@ def _interactive() -> None:
     run_session(console, repl, has_llm, history_file=state_dir() / "history.txt")
 
 
-class _RunResult:
-    """Collects a run's outcome from its events, for `--json`."""
-
-    def __init__(self) -> None:
-        self.data: dict[str, Any] = {"status": "failed", "endpoints": [], "client": None}
-
-    def __call__(self, event: Any) -> None:
-        if isinstance(event, RunStarted):
-            self.data.update(run_id=event.run_id, site=event.domain, url=event.start_url)
-        elif isinstance(event, EndpointsUpdated):
-            self.data["endpoints"] = event.endpoints
-        elif isinstance(event, ClientGenerated):
-            self.data["client"] = event.to_dict()
-        elif isinstance(event, NetworkSummary):
-            network = event.to_dict()
-            network.pop("type", None)
-            self.data["network"] = network
-        elif isinstance(event, RunFinished):
-            finished = event.to_dict()
-            finished.pop("type", None)
-            finished["endpoint_count"] = finished.pop("endpoints")  # the list stays in "endpoints"
-            self.data.update(finished)
+class _RunResult(workflows.RunCollector):
+    """A run's outcome for `--json`, and its exit code."""
 
     def finish(self, db: Path) -> None:
         """Print the JSON (with --json) and exit with the code for the run's status."""
@@ -248,21 +220,6 @@ def _normalize_url(url: str) -> str:
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise typer.BadParameter(f"Not a valid http(s) URL: {url}")
     return url
-
-
-def _gateway(max_calls: int, required: bool) -> LLMGateway | None:
-    gateway = LLMGateway(
-        default_providers(), max_calls=max_calls, cooldown_file=state_dir() / "cooldowns.json"
-    )
-    if gateway.providers:
-        return gateway
-    if required:
-        console.print(
-            "[red]No LLM API key found.[/] Add one to .env (see .env.example), "
-            "or use --no-agent to only scroll the page."
-        )
-        raise typer.Exit(code=2)
-    return None
 
 
 def _check_lang(lang: str) -> str:
@@ -360,54 +317,25 @@ def run(
         no_verify=no_verify,
         out=out,
     )
-    host = urlsplit(settings.url).hostname or ""
-    limiter = RateLimiter(settings.rate_limit)
     bus = EventBus()
     renderer = _renderer()
     bus.subscribe(renderer.handle)
     result = _RunResult()
     bus.subscribe(result)
-
-    robots, allowed = robots_policy(settings.url, settings.ignore_robots, limiter, bus)
-    if not allowed:
+    ask = renderer.ask if settings.headed and sys.stdin.isatty() else None
+    try:
+        workflows.run(
+            settings, opts, bus, use_agent=not no_agent, ask_user=ask,
+            stop=keys.stop_requested, started_hook=renderer.start,
+        )  # fmt: skip
+    except workflows.NotAllowed:
         _not_allowed(settings.url)
-    gateway = None if no_agent else _gateway(settings.max_llm_calls, required=True)
-
-    status = "failed"
-    with Store(settings.db_path) as store:
-        renderer.start()
-        try:
-            s = open_session(
-                store,
-                bus,
-                host,
-                settings.url,
-                settings.goal,
-                settings.headed,
-                limiter,
-                robots,
-                gateway,
-                max_probes,
-                screens_root=settings.db_path,
-                lang=settings.lang,
-            )
-            s.stop = s.stop or keys.stop_requested  # Ctrl+C in the session
-            known = load_memory(store, s.site)
-            if known is not None:
-                s.memory = memory_prompt(known.endpoints, known.lessons)
-                bus.emit(
-                    Notice(
-                        f"Using memory: {len(known.endpoints)} known endpoints, "
-                        f"{len(known.lessons)} lessons"
-                    )
-                )
-            ask = renderer.ask if settings.headed and sys.stdin.isatty() else None
-            started = time.monotonic()
-            status, reason = explore_site(s, opts, use_agent=gateway is not None, ask_user=ask)
-            finish(s, status, reason, started, opts)
-        finally:
-            renderer.close()
-        console.print(f"[dim]Saved to {settings.db_path}[/]")
+    except workflows.NoLLMKey as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=exitcodes.USAGE) from exc
+    finally:
+        renderer.close()
+    console.print(f"[dim]Saved to {settings.db_path}[/]")
     result.finish(settings.db_path)
 
 
@@ -524,68 +452,32 @@ def refresh(
     lang = _check_lang(lang)
     with Store(path) as store:
         domain = _site(store, domain)
-        mem = load_memory(store, domain)
-        if mem is None:
-            console.print(f"Nothing remembered for {domain}. Run `ghost-api run` first.")
-            raise typer.Exit(code=1)
-        bus = EventBus()
-        renderer = _renderer()
-        bus.subscribe(renderer.handle)
-        result = _RunResult()
-        bus.subscribe(result)
-        bus.emit(
-            Notice(
-                f"Refreshing {domain} from memory: {len(mem.endpoints)} endpoint(s), "
-                f"{len(mem.lessons)} lesson(s)"
-            )
+    opts = RunOptions(lang=lang, headed=headed, max_steps=max_steps, max_probes=max_probes,
+                      no_verify=no_verify, out=out)  # fmt: skip
+    bus = EventBus()
+    renderer = _renderer()
+    bus.subscribe(renderer.handle)
+    result = _RunResult()
+    bus.subscribe(result)
+    try:
+        _, now, first = workflows.refresh(
+            path, domain, opts, bus, use_llm=not no_llm, max_llm_calls=max_llm_calls,
+            rate_limit=rate_limit, ignore_robots=ignore_robots, stop=keys.stop_requested,
+            started_hook=renderer.start,
+        )  # fmt: skip
+    except workflows.NothingRemembered as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=exitcodes.FAILED) from exc
+    except workflows.NotAllowed:
+        _not_allowed(domain)
+    finally:
+        renderer.close()
+    if first:
+        saved = 100 * (first - now) / first
+        console.print(
+            f"[bold]Memory:[/] {now} LLM call(s) vs {first} on the first run ({saved:.0f}% fewer)"
         )
-        limiter = RateLimiter(rate_limit)
-        robots, allowed = robots_policy(mem.start_url, ignore_robots, limiter, bus)
-        if not allowed:
-            _not_allowed(mem.start_url)
-        gateway = None if no_llm else _gateway(max_llm_calls, required=False)
-        opts = RunOptions(
-            lang=lang,
-            headed=headed,
-            max_steps=max_steps,
-            max_probes=max_probes,
-            no_verify=no_verify,
-            out=out,
-        )
-        renderer.start()
-        try:
-            s = open_session(
-                store,
-                bus,
-                site_host(domain),
-                mem.start_url,
-                f"refresh: {mem.goal}",
-                headed,
-                limiter,
-                robots,
-                gateway,
-                max_probes,
-                screens_root=path,
-                mode="refresh",
-                lang=lang,
-                site=domain,
-            )
-            s.stop = s.stop or keys.stop_requested  # Ctrl+C in the session
-            s.memory = memory_prompt(mem.endpoints, mem.lessons)
-            started = time.monotonic()
-            status, reason = refresh_site(s, mem, max_steps)
-            finish(s, status, reason, started, opts)
-        finally:
-            renderer.close()
-        first = store.first_run_llm_calls(domain)
-        now = gateway.usage.answered if gateway is not None else 0
-        if first:
-            saved = 100 * (first - now) / first
-            console.print(
-                f"[bold]Memory:[/] {now} LLM call(s) vs {first} on the first run "
-                f"({saved:.0f}% fewer)"
-            )
-        result.data["llm_calls"] = now
+    result.data["llm_calls"] = now
     result.finish(path)
 
 
@@ -1231,33 +1123,11 @@ def _print_history(domain: str, versions: list[dict[str, Any]]) -> None:
 
 
 def _live_changes(store: Store, domain: str) -> list[Any]:
-    """Call each operation once (read-only, rate-limited) and compare the reply's shape."""
     from ghost_api import drift
-    from ghost_api.analysis.schema import build_schema
 
-    try:
-        rt = SiteRuntime(store, domain)
-    except OperationError as exc:
-        console.print(f"[yellow]Live check skipped:[/] {exc}")
-        return []
-    stored = {e.key: e.response_schema for e in store.current_endpoints(domain)}
-    changes: list[Any] = []
-    with rt:
-        for op in rt.operations():
-            inputs = {i.name: i.example for i in op.inputs if i.example}
-            try:
-                result = rt.call(op, inputs)
-            except (OperationError, ReplayRefused) as exc:
-                changes.append(drift.Change("info", op.name, f"not checked live: {exc}"))
-                continue
-            if not result.ok:
-                status = result.status or "network error"
-                changes.append(drift.Change("breaking", op.name, f"live call failed ({status})"))
-                continue
-            fresh = build_schema([result.body])
-            changes += drift.live_changes(op.name, stored.get(op.endpoint.key), fresh)
-            console.print(f"[dim]  checked {op.name} live[/]")
-    return changes
+    return drift.live_check(
+        store, domain, on_progress=lambda text: console.print(f"[dim]  {text}[/]")
+    )
 
 
 @app.command()

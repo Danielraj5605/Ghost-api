@@ -376,6 +376,23 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes with their 
 ghost-api               # or the interactive session: paste a site, say what you want
 ```
 
+### From Python
+
+Everything the command does is also a function, with the same rules:
+
+```python
+from ghost_api.api import discover, fetch, diff
+
+result = discover("https://quotes.toscrape.com/scroll", "list quotes with their authors")
+print(result.status, [e["path"] for e in result.endpoints], result.client_files)
+
+rows = fetch("quotes.toscrape.com/scroll", "get_quotes", pages=3)   # list of records
+changes = diff("quotes.toscrape.com/scroll", live=True)            # breaking or not
+```
+
+Also `refresh`, `generate`, `operations` and `sites`. Errors are exceptions you can catch:
+`NotAllowed` (robots.txt), `NoLLMKey`, `NothingRemembered`, `GhostApiError`.
+
 ### Project settings
 
 `ghost-api init` writes `ghost-api.toml`. Every command run in that folder, or any folder

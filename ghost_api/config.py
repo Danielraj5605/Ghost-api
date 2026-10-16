@@ -79,6 +79,8 @@ def load_env() -> None:
     for each key: the current folder, the project folder (ghost-api.toml), your user
     folder (~/.ghost-api/.env, for installed copies), then the Ghost API source folder
     (a git checkout)."""
+    if os.getenv("GHOST_API_NO_DOTENV"):  # tests: never pick up the developer's real keys
+        return
     local = [Path.cwd() / ".env"]
     project = _project()
     if project is not None:

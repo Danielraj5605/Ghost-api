@@ -44,6 +44,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - `ghost-api login URL`: log in yourself once; the session is saved (DPAPI-encrypted on
   Windows) and used by runs, refreshes, fetch, watch and serve. `logout`, `login --list`;
   `forget` deletes it too.
+- A Python API (`ghost_api.api`): discover, refresh, generate, operations, fetch, diff,
+  sites; the CLI and the API share the same workflows (`ghost_api.workflows`).
+- Every run records a "Network and permissions" summary (report, terminal, `--json`).
 - A quality gate: ten local test sites with known answers (paging, auth headers, robots
   rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI
   against `evals/thresholds.json`; a weekly live evaluation.
@@ -57,6 +60,7 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - Endpoints found by earlier runs are kept until a refresh finds them gone.
 
 ### Fixed
+- Tests no longer read the developer's `.env` or call real LLM providers.
 - Cursor paging was missed when the newest captured page was the last one (found by the
   quality gate).
 - Bot-protection pages are detected without the agent too (`--no-agent`).

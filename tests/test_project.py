@@ -111,6 +111,7 @@ def test_env_from_other_folders_never_moves_the_database(
     (home / ".env").write_text("GHOST_API_DB=elsewhere.db\nGROQ_API_KEY=from-home\n", "utf-8")
     monkeypatch.setenv("GHOST_API_HOME", str(home))
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GHOST_API_NO_DOTENV")  # this test is about reading .env files
     load_env()
     assert os.environ.get("GROQ_API_KEY") == "from-home"
     assert "GHOST_API_DB" not in os.environ

@@ -15,6 +15,7 @@ anything else (a description, an example) -> patch. The first version is 1.0.0.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -297,3 +298,40 @@ def live_changes(
             text = f"now {'/'.join(sorted(new))}, was {'/'.join(sorted(old))}"
             out.append(Change("breaking", f"{where} {path}", text))
     return out
+
+
+def live_check(
+    store: Store, site: str, on_progress: Callable[[str], None] | None = None
+) -> list[Change]:
+    """Call each operation once (read-only, rate-limited, the site's rules apply) and
+    compare each reply's shape with what was captured."""
+    from ghost_api.analysis.schema import build_schema
+    from ghost_api.probe.replay import ReplayRefused
+    from ghost_api.runtime import OperationError, SiteRuntime
+
+    try:
+        runtime = SiteRuntime(store, site)
+    except OperationError as exc:
+        if on_progress is not None:
+            on_progress(f"live check skipped: {exc}")
+        return []
+    stored = {e.key: e.response_schema for e in store.current_endpoints(site)}
+    changes: list[Change] = []
+    with runtime:
+        for op in runtime.operations():
+            inputs = {i.name: i.example for i in op.inputs if i.example}
+            try:
+                result = runtime.call(op, inputs)
+            except (OperationError, ReplayRefused) as exc:
+                changes.append(Change("info", op.name, f"not checked live: {exc}"))
+                continue
+            if not result.ok:
+                status = result.status or "network error"
+                changes.append(Change("breaking", op.name, f"live call failed ({status})"))
+                continue
+            changes += live_changes(
+                op.name, stored.get(op.endpoint.key), build_schema([result.body])
+            )
+            if on_progress is not None:
+                on_progress(f"checked {op.name} live")
+    return changes
