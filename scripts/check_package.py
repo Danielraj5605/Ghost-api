@@ -14,7 +14,12 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGED = ("ghost_api/web/static", "ghost_api/export/viewer", "ghost_api/generator/templates")
+PACKAGED = (
+    "ghost_api/web/static",
+    "ghost_api/export/viewer",
+    "ghost_api/generator/templates",
+    "ghost_api/integrations/claude_code",
+)
 
 
 def expected_files() -> set[str]:

@@ -124,6 +124,20 @@ ghost-api inspect DOMAIN [OPTIONS]
 | `--run` | Replay one run's step log and test results. |
 | `--db` | SQLite database path. |
 
+## `ghost-api integrate`
+
+Add Ghost API to an AI assistant for this project: the MCP server (explore sites,
+fetch data, check changes), and for Claude Code a skill and /ghost-* commands.
+
+```
+ghost-api integrate TARGET [OPTIONS]
+```
+
+| Option | What it does |
+|---|---|
+| `--path` | The project folder. (default: `.`) |
+| `--dry-run` | Show what would be written, write nothing. |
+
 ## `ghost-api login`
 
 Log in to a site yourself, once; Ghost API reuses the session.
@@ -155,8 +169,9 @@ ghost-api logout DOMAIN [OPTIONS]
 
 ## `ghost-api mcp`
 
-Offer sites as tools to AI assistants (MCP over stdio), e.g. for Claude Code:
-claude mcp add ghost -- ghost-api mcp turftown.in/chennai
+Offer Ghost API to AI assistants (MCP over stdio), e.g. for Claude Code:
+claude mcp add ghost-api -- ghost-api mcp --explore      (explore any site)
+claude mcp add ghost -- ghost-api mcp turftown.in/chennai  (one tool per operation)
 
 ```
 ghost-api mcp SITES [OPTIONS]
@@ -165,6 +180,8 @@ ghost-api mcp SITES [OPTIONS]
 | Option | What it does |
 |---|---|
 | `--db` | SQLite database path. |
+| `--explore` | Ghost API as a toolset: the assistant explores new sites (no LLM key needed) and uses explored ones (fetch, diff, generate). |
+| `--out` | Folder for generated clients. (default: `output`) |
 
 ## `ghost-api mock`
 

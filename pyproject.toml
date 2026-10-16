@@ -71,7 +71,8 @@ version = { attr = "ghost_api.__version__" }
 include = ["ghost_api*"]
 
 [tool.setuptools.package-data]
-ghost_api = ["py.typed", "generator/templates/*.j2", "web/static/*", "web/static/assets/*", "export/viewer/*"]
+ghost_api = ["py.typed", "integrations/claude_code/*/*.md",
+             "integrations/claude_code/skills/*/*.md", "generator/templates/*.j2", "web/static/*", "web/static/assets/*", "export/viewer/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -466,3 +466,23 @@ def test_generate_client_end_to_end_with_llm_names(tmp_path: Path) -> None:
     assert "list_items" in names and "get_item" in names  # LLM name + fallback
     assert result.client.client_path.exists()
     assert "One page of items." in result.client.client_path.read_text(encoding="utf-8")
+
+
+def test_cursor_parameters_are_text_even_when_they_look_like_numbers() -> None:
+    from ghost_api.analysis.analyzer import analyze
+    from ghost_api.generator.naming import apply_plan
+    from ghost_api.generator.spec import build_spec
+
+    reqs = [
+        CapturedRequest("GET", f"https://ex.com/api/feed?cursor={c}", 200, "fetch", {}, None,
+                        None, "application/json",
+                        json.dumps({"items": [{"id": c}], "next_cursor": str(int(c) + 6)}))
+        for c in ("6", "12", "18")
+    ]  # fmt: skip
+    eps = analyze(reqs)
+    eps[0].pagination = {"style": "cursor", "param": "cursor", "location": "query",
+                         "confirmed": True}  # fmt: skip
+    cls, names = apply_plan(None, eps, "ex.com")
+    method = build_spec("ex.com", "https://ex.com/", eps, reqs, cls, names).methods[0]
+    cursor = next(p for p in method.params if p.wire == "cursor")
+    assert cursor.type == "str" and cursor.default is None

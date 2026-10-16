@@ -195,6 +195,47 @@ def init(
 
 
 @app.command()
+def integrate(
+    target: Annotated[
+        str, typer.Argument(help="claude-code, cursor, vscode or desktop.")
+    ] = "claude-code",
+    path: Annotated[Path, typer.Option(help="The project folder.")] = Path("."),
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be written, write nothing.")
+    ] = False,
+) -> None:
+    """Add Ghost API to an AI assistant for this project: the MCP server (explore sites,
+    fetch data, check changes), and for Claude Code a skill and /ghost-* commands."""
+    from ghost_api.integrations.setup import IntegrationError, desktop_snippet, plan, write
+
+    if target == "desktop":
+        console.print(
+            "Add this to Claude Desktop's config (Settings > Developer > Edit Config), "
+            "then restart Claude Desktop:"
+        )
+        console.print(desktop_snippet(), markup=False, highlight=False)
+        return
+    try:
+        files = plan(target, path.resolve())
+    except IntegrationError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=exitcodes.USAGE) from exc
+    if _options["json"]:
+        json_out({"target": target, "dry_run": dry_run, "files": [str(f) for f in files]})
+    if dry_run:
+        for file in files:
+            console.print(f"would write {file}")
+        return
+    for file in write(files):
+        console.print(f"[green]✓[/] {file}")
+    if target == "claude-code":
+        console.print(
+            "\nRestart Claude Code in this folder (approve the ghost-api server when asked), "
+            "then try:\n  /ghost-explore https://quotes.toscrape.com/scroll quotes with authors"
+        )
+
+
+@app.command()
 def doctor() -> None:
     """Check your setup: Python, the browser, the project, the database and each LLM key
     (one tiny call per provider)."""

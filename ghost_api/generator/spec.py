@@ -258,13 +258,16 @@ def build_spec(
             is_page = page.get("location") == "query" and page.get("param") == qp.name
             if qp.constant or is_page:
                 # A cursor starts empty (first page); page/offset start where we saw them.
-                start = None if is_page and page.get("style") == "cursor" else literal
+                cursor = is_page and page.get("style") == "cursor"
+                start = None if cursor else literal
                 params.append(
                     ParamSpec(
                         arg,
                         qp.name,
                         "query",
-                        PY_TYPES.get(qp.type, "str"),
+                        # Cursors are opaque tokens, even when they look like numbers: the
+                        # reply's next_cursor is passed back as it came.
+                        "str" if cursor else PY_TYPES.get(qp.type, "str"),
                         False,
                         default=start,
                         example=start,

@@ -379,6 +379,19 @@ ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes with their 
 ghost-api               # or the interactive session: paste a site, say what you want
 ```
 
+### With Claude Code (no LLM key needed)
+
+```bash
+ghost-api integrate claude-code      # also: cursor, vscode, desktop
+```
+
+Then in Claude Code: `/ghost-explore https://quotes.toscrape.com/scroll quotes with authors`.
+Claude reads each page and decides what to click; Ghost API acts under its rules, maps the
+hidden API, tests every endpoint, and writes the typed client, report and OpenAPI spec. In a
+test on the demo shop, Claude mapped all five endpoints (all verified) in 12 turns, and
+spotted a typing issue Ghost API then fixed. See
+[docs/guide/assistants.md](docs/guide/assistants.md).
+
 ### From Python
 
 Everything the command does is also a function, with the same rules:

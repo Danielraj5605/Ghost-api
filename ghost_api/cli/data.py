@@ -456,9 +456,19 @@ def mcp(
         list[str] | None, typer.Argument(help="Sites to offer (default: all stored sites).")
     ] = None,
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+    explore: Annotated[
+        bool,
+        typer.Option(
+            "--explore",
+            help="Ghost API as a toolset: the assistant explores new sites (no LLM key "
+            "needed) and uses explored ones (fetch, diff, generate).",
+        ),
+    ] = False,
+    out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
 ) -> None:
-    """Offer sites as tools to AI assistants (MCP over stdio), e.g. for Claude Code:
-    claude mcp add ghost -- ghost-api mcp turftown.in/chennai"""
+    """Offer Ghost API to AI assistants (MCP over stdio), e.g. for Claude Code:
+    claude mcp add ghost-api -- ghost-api mcp --explore      (explore any site)
+    claude mcp add ghost -- ghost-api mcp turftown.in/chennai  (one tool per operation)"""
     import anyio
 
     stderr = Console(stderr=True)  # stdout carries the protocol
@@ -467,6 +477,12 @@ def mcp(
     except ImportError as exc:
         stderr.print('The MCP server needs the mcp package: pip install "mcp>=1.2"')
         raise typer.Exit(code=1) from exc
+    if explore:
+        from ghost_api.serve import explorer_mcp
+
+        stderr.print("Ghost API MCP server: explore sites and use explored ones")
+        anyio.run(explorer_mcp.run_stdio, db, out)
+        return
     served = _served(_need_db(db), sites, stderr)
     count = sum(len(s.operations) for s in served.values())
     stderr.print(f"Ghost API MCP server: {count} tool(s) from {', '.join(served)}")

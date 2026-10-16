@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- **Ghost API for AI assistants:** `ghost-api mcp --explore` lets Claude (or any MCP
+  client) be the explorer, with no LLM key: it reads each page and decides, Ghost API acts
+  under its rules, maps and tests the API, and writes the client, report and version.
+  Library tools: sites, operations, fetch, diff, generate.
+- `ghost-api integrate claude-code|cursor|vscode|desktop`: the MCP server, a Claude Code
+  skill and `/ghost-explore`, `/ghost-data`, `/ghost-diff` commands, merged into the project.
 - `ghost-api init`: sets up a folder in one step (project file, Chromium, an optional LLM
   key, `.gitignore`). Safe to run again.
 - Project settings in `ghost-api.toml`: the project's own database and output folder, and
@@ -60,6 +66,7 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - Endpoints found by earlier runs are kept until a refresh finds them gone.
 
 ### Fixed
+- Cursor paging parameters are typed as text (cursors are opaque, even when numeric).
 - Tests no longer read the developer's `.env` or call real LLM providers.
 - Cursor paging was missed when the newest captured page was the last one (found by the
   quality gate).

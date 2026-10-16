@@ -34,6 +34,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Guides:
+      - With Claude and other assistants: guide/assistants.md
       - Exploring a site: guide/exploring.md
       - Using the client: guide/clients.md
       - Data without code: guide/data.md

@@ -85,7 +85,7 @@ class Explorer:
     def __init__(
         self,
         browser: Browser,
-        llm: LLM,
+        llm: LLM | None,
         captured: Callable[[], list[CapturedRequest]],
         goal: str,
         start_url: str,
@@ -124,6 +124,7 @@ class Explorer:
         self.should_stop = should_stop  # e.g. the dashboard's Stop button
         self.steps: list[StepRecord] = []
         self.history: list[HistoryItem] = []
+        self._known: set[str] = set()
 
     # --- main loop ---
 
@@ -176,9 +177,35 @@ class Explorer:
         except KeyboardInterrupt:
             return self._result("interrupted", "stopped by user")
 
+    # --- driven step by step from outside (an assistant through MCP: serve/explorer_mcp) ---
+
+    def begin(self) -> None:
+        """Open the start page; then call `act` once per decision."""
+        self.browser.goto(self.start_url)
+        self._shoot("start")
+        self._known = {e.key for e in self._endpoints()}
+
+    def act(self, decision: Decision) -> StepRecord:
+        """Run one action decided elsewhere, with every rule of `run` (same-site only, no
+        destructive elements, robots.txt, read-only endpoint tests). Raises BotProtection
+        on a bot-protection page: nothing is done there."""
+        snapshot = self.browser.snapshot(self.host, self.robots)
+        if is_bot_challenge(snapshot.title, snapshot.text):
+            raise BotProtection(snapshot.title)
+        step = len(self.steps) + 1
+        box = self._box(decision)
+        result, new_requests = self._execute(decision, snapshot)
+        endpoints = self._endpoints()
+        new = [self._label(e) for e in endpoints if e.key not in self._known]
+        self._known |= {e.key for e in endpoints}
+        shot = self._shoot(f"step-{step}")
+        self._record(step, decision, result, new, len(new_requests), shot, box)
+        return self.steps[-1]
+
     # --- decide ---
 
     def _decide(self, step: int, snapshot: PageSnapshot) -> Decision:
+        assert self.llm is not None, "run() needs an LLM; act() is for outside decisions"
         prompt = step_prompt(
             self.goal,
             step,
@@ -351,6 +378,10 @@ class Explorer:
 
 class _Rejected(Exception):
     pass
+
+
+class BotProtection(Exception):
+    """The page is a bot-protection challenge; Ghost API never tries to get past it."""
 
 
 def _find_endpoint(name: str, endpoints: list[Endpoint], host: str) -> Endpoint | None:
