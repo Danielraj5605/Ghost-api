@@ -40,6 +40,7 @@ nav:
       - Data without code: guide/data.md
       - When the API changes: github-action.md
       - From Python: guide/python.md
+  - Does it help? Measured: benchmark.md
   - Command reference: cli.md
   - Security and data: security.md
   - Changelog: changelog.md

@@ -88,9 +88,9 @@ def test_live_reply_changes() -> None:
         },
     }  # fmt: skip
     lines = {c.line() for c in drift.live_changes("get_q", stored, fresh)}
-    assert "! get_q total: field missing from the reply" in lines
-    assert "! get_q items[].id: now string, was integer" in lines
-    assert "+ get_q cursor: new field in the reply" in lines
+    assert "! [live] get_q total: field missing from the reply" in lines
+    assert "! [live] get_q items[].id: now string, was integer" in lines
+    assert "+ [live] get_q cursor: new field in the reply" in lines
     assert not any("note" in line for line in lines)  # optional before: missing is fine
 
 

@@ -388,9 +388,10 @@ ghost-api integrate claude-code      # also: cursor, vscode, desktop
 Then in Claude Code: `/ghost-explore https://quotes.toscrape.com/scroll quotes with authors`.
 Claude reads each page and decides what to click; Ghost API acts under its rules, maps the
 hidden API, tests every endpoint, and writes the typed client, report and OpenAPI spec. In a
-test on the demo shop, Claude mapped all five endpoints (all verified) in 12 turns, and
-spotted a typing issue Ghost API then fixed. See
-[docs/guide/assistants.md](docs/guide/assistants.md).
+test on the demo shop, Claude mapped all five endpoints (all verified) in 12 turns. Claude
+alone found them too (7 turns): on easy sites Ghost API's value is what comes after, such as
+checking the live API again in seconds with no LLM, offline tests, change detection, rules and
+an audit trail. Measured in [docs/benchmark.md](docs/benchmark.md).
 
 ### From Python
 

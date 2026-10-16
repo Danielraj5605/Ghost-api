@@ -31,10 +31,15 @@ class Change:
     severity: Severity
     where: str  # "get_quotes", "Quote.author"
     text: str  # plain words: "returns QuotesResponse instead of list[Quote]"
+    # "client": the client Ghost API generates now differs from the last version (the site's
+    # data changed, or a newer Ghost API types things differently); "live": a fresh reply
+    # from the site differs from what was captured.
+    source: str = "client"
 
     def line(self) -> str:
         mark = {"breaking": "!", "additive": "+", "info": "~"}[self.severity]
-        return f"{mark} {self.where}: {self.text}"
+        live = "[live] " if self.source == "live" else ""
+        return f"{mark} {live}{self.where}: {self.text}"
 
 
 def snapshot(spec: ClientSpec) -> dict[str, Any]:
@@ -289,14 +294,16 @@ def live_changes(
     out: list[Change] = []
     for path in sorted(before.keys() - now.keys()):
         if before[path].required and "[]" not in path.rstrip("[]"):
-            out.append(Change("breaking", f"{where} {path}", "field missing from the reply"))
+            out.append(
+                Change("breaking", f"{where} {path}", "field missing from the reply", "live")
+            )
     for path in sorted(now.keys() - before.keys()):
-        out.append(Change("additive", f"{where} {path}", "new field in the reply"))
+        out.append(Change("additive", f"{where} {path}", "new field in the reply", "live"))
     for path in sorted(before.keys() & now.keys()):
         old, new = before[path].types - {"null"}, now[path].types - {"null"}
         if old and new and not (new <= old or {"integer", "number"} >= old | new):
             text = f"now {'/'.join(sorted(new))}, was {'/'.join(sorted(old))}"
-            out.append(Change("breaking", f"{where} {path}", text))
+            out.append(Change("breaking", f"{where} {path}", text, "live"))
     return out
 
 
@@ -323,11 +330,11 @@ def live_check(
             try:
                 result = runtime.call(op, inputs)
             except (OperationError, ReplayRefused) as exc:
-                changes.append(Change("info", op.name, f"not checked live: {exc}"))
+                changes.append(Change("info", op.name, f"not checked live: {exc}", "live"))
                 continue
             if not result.ok:
                 status = result.status or "network error"
-                changes.append(Change("breaking", op.name, f"live call failed ({status})"))
+                changes.append(Change("breaking", op.name, f"live call failed ({status})", "live"))
                 continue
             changes += live_changes(
                 op.name, stored.get(op.endpoint.key), build_schema([result.body])

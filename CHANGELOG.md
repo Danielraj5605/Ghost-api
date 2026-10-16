@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- docs/benchmark.md: Claude Code alone vs with Ghost API, measured (including where Claude
+  alone does as well). `diff` labels changes from the live API `[live]`, apart from changes
+  in the generated client.
 - Team rules per site in `ghost-api.toml` (`require_terms`, `terms_ok`, `deny_paths`,
   `max_direct_calls`, `agent`), enforced for runs, refreshes, imports, assistants, fetch,
   watch and serve; an audit log of every request sent or blocked (`ghost-api audit SITE`).

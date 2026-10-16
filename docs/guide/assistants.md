@@ -59,11 +59,12 @@ an attempt to get past it.
 
 | | Assistant alone | Assistant + Ghost API |
 |---|---|---|
-| Result you can keep | A summary in the chat | Typed client, tests, report, OpenAPI |
-| Proof | "I saw a request" | Every endpoint called directly and checked |
+| Result you can keep | What it writes when asked (e.g. a client file) | Typed client, package, offline tests, report, OpenAPI, version |
+| Proof | Its own tests, if it writes them | Every endpoint called directly and checked before you see it |
 | Next week | Starts from zero | Memory, versions, `ghost_diff` |
 | Site changes | Nobody notices | `diff --live`, GitHub Action, new version |
 | Safety | Depends on the prompt | Enforced rules (robots, rate limit, no writes, private network) |
 | Personal data | Seen and repeated | Hidden before anything is stored |
 
-A measured comparison is part of the evaluation (see the Changelog for the latest numbers).
+Measured on the demo shop, including where Claude alone does just as well:
+[Does it help? Measured](../benchmark.md).

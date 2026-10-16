@@ -256,6 +256,12 @@ def diff(
         for change in changes:
             style = {"breaking": "red", "additive": "green", "info": "dim"}[change.severity]
             console.print(f"  [{style}]{change.line()}[/]", highlight=False)
+        if not any(c.source == "live" for c in changes):
+            console.print(
+                "[dim]These are differences in the generated client: from the site's data, or "
+                "from a newer Ghost API typing things differently. --live checks the site "
+                "itself.[/]"
+            )
         console.print("[dim]Run `ghost-api generate` to write the new client version.[/]")
     breaking = any(c.severity == "breaking" for c in changes)
     if (fail_on == "breaking" and breaking) or (fail_on == "any" and changes):
