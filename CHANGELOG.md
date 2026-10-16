@@ -6,6 +6,8 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
 ### Added
 - docs/gallery.md: real runs on public practice sites, including one with no JSON API.
 - `--third-party-robots`: the page's API calls to other sites are checked against those
@@ -100,5 +102,6 @@ endpoint testing, Python and TypeScript clients with tests, verification and rep
 reports, OpenAPI, the web dashboard, memory and refresh, fetch, watches, REST and MCP
 servers, and the personal-data leak check.
 
-[Unreleased]: https://github.com/Danielraj5605/Ghost-api/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Danielraj5605/Ghost-api/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Danielraj5605/Ghost-api/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Danielraj5605/Ghost-api/releases/tag/v0.1.0
