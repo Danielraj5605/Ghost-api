@@ -50,6 +50,7 @@ class BrowserSession:
         policy: NetworkPolicy | None = None,
         gate: RequestGate | None = None,
         on_block: Callable[[str], None] | None = None,
+        storage_state: dict[str, Any] | None = None,
     ) -> None:
         """`policy`: where the browser may connect (default: decided from `start_url`).
         `gate`: robots.txt and rate limits for the browser's own requests."""
@@ -59,6 +60,7 @@ class BrowserSession:
         self.policy = policy or NetworkPolicy.for_target(start_url)
         self.gate = gate
         self.on_block = on_block
+        self.storage_state = storage_state  # a saved login (auth_state.py)
         self._proxy: EgressProxy | None = None
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
@@ -91,7 +93,10 @@ class BrowserSession:
         probe = self._browser.new_page()
         base_ua = probe.evaluate("navigator.userAgent")
         probe.close()
-        self._context = self._browser.new_context(user_agent=f"{base_ua} {tool_user_agent()}")
+        self._context = self._browser.new_context(
+            user_agent=f"{base_ua} {tool_user_agent()}",
+            storage_state=self.storage_state,  # type: ignore[arg-type]
+        )
         if self.gate is not None:
             self._context.route("**/*", self.gate.handle)
         self._page = self._context.new_page()
@@ -115,6 +120,12 @@ class BrowserSession:
             self._proxy.stop()
         self._page = self._context = self._browser = self._pw = None
         self._proxy = None
+
+    def export_state(self) -> dict[str, Any]:
+        """Cookies and site storage now (after the user logged in), for auth_state.save."""
+        if self._context is None:
+            raise RuntimeError("BrowserSession is not open")
+        return dict(self._context.storage_state())
 
     def _blocked(self, message: str) -> None:
         self.recorder.dropped["blocked-network"] += 1

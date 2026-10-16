@@ -41,6 +41,9 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - GraphQL: each named operation is its own endpoint and client method, with the variables
   as typed arguments. Mutations (also inside batches, and persisted queries whose name
   doesn't say they read) are never replayed or generated.
+- `ghost-api login URL`: log in yourself once; the session is saved (DPAPI-encrypted on
+  Windows) and used by runs, refreshes, fetch, watch and serve. `logout`, `login --list`;
+  `forget` deletes it too.
 - A quality gate: ten local test sites with known answers (paging, auth headers, robots
   rules, huge replies, XSSI, no API, bot walls, personal data, prompt injection), scored in CI
   against `evals/thresholds.json`; a weekly live evaluation.

@@ -257,6 +257,7 @@ class Store:
     def __init__(self, path: Path | str) -> None:
         # check_same_thread=False: the dashboard opens a store per request; WAL lets it
         # read while a run (another thread) writes; timeout waits out short locks.
+        self.path = Path(path)
         self.conn = sqlite3.connect(str(path), timeout=15, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         try:

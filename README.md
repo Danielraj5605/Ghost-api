@@ -717,6 +717,15 @@ ghost-api import session.har --goal "my orders"     # add --offline to send noth
 Cookies, tokens and personal data are removed before anything is stored. Delete the `.har`
 file afterwards: it holds them in plain text.
 
+**Sites that need a login.** Log in once yourself; Ghost API keeps the session (encrypted
+on Windows) and later runs, refreshes and fetches use it:
+
+```bash
+ghost-api login https://example.com/account     # a browser opens: log in, press Enter
+ghost-api run https://example.com/account --goal "my orders"
+ghost-api logout example.com                     # delete it
+```
+
 **Work offline.** `ghost-api mock quotes.toscrape.com/scroll` serves the captured replies at
 the same paths on `http://127.0.0.1:8901`: point a front end or a test at it, with no traffic
 to the real site.

@@ -23,9 +23,21 @@ read them. Use disk encryption (BitLocker, FileVault, LUKS) if that matters to y
 not commit `ghost_api.db`, `ghost_api_files/` or `output/` to a public repository (the
 project's `.gitignore` already excludes them).
 
-Ghost API never stores passwords. When a site needs a login, you log in yourself in the
-browser window; the session cookies stay in that browser profile, which is thrown away at the
-end of the run.
+Ghost API never sees or stores passwords. When a site needs a login, you log in yourself in
+the browser window. By default the session is thrown away at the end of the run.
+
+**Saved logins (only if you ask).** `ghost-api login URL` keeps the session (cookies and
+site storage) after you log in, so later runs start logged in and `fetch`, `watch` and
+`serve` can send its cookies. It is stored in `ghost_api_files/logins/`, next to the
+database:
+
+- on Windows, encrypted with DPAPI for your Windows account (another account, or a copy of
+  the file on another computer, can't read it);
+- on macOS and Linux, in a file only your user can read, **not encrypted**.
+
+Anyone who can use your account can use the session, as with a browser that stays logged
+in. `ghost-api logout SITE` or `ghost-api forget SITE` deletes it; `ghost-api login --list`
+shows what is saved.
 
 ## What leaves your machine
 

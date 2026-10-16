@@ -21,8 +21,9 @@ from ghost_api.analysis.detectors import (
     next_cursor,
 )
 from ghost_api.analysis.models import Endpoint
+from ghost_api.browser import auth_state
 from ghost_api.capture import personal
-from ghost_api.capture.filters import is_sensitive_name
+from ghost_api.capture.filters import REDACTED, is_sensitive_name
 from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.generator.naming import NamingPlan, apply_plan
 from ghost_api.memory.knowledge import rebuild_raw
@@ -94,6 +95,11 @@ class SiteRuntime:
         for key, req in zip(endpoint_keys(stored), stored, strict=False):
             self.samples.setdefault(key, []).append(req)
         self.replayer = replayer or Replayer(site_host(site), RateLimiter(rate), max_requests=10**6)
+        try:  # ghost-api login: its cookies are added to direct calls
+            found = auth_state.load(store.path, site)
+        except auth_state.LoginError:
+            found = None
+        self.login = found[0] if found else None
 
     def close(self) -> None:
         self.replayer.close()
@@ -187,12 +193,26 @@ class SiteRuntime:
 
     def _sample(self, op: Operation) -> RawRequest:
         for captured in reversed(self.samples.get(op.endpoint.key, [])):
-            raw = rebuild_raw(captured, op.endpoint.required_headers)
+            raw = rebuild_raw(self._with_login(captured), op.endpoint.required_headers)
             if raw is not None:
                 return raw
         raise OperationError(
             f"{op.label} needs a fresh key or session. Run `ghost-api refresh {self.site}` first."
         )
+
+    def _with_login(self, captured: CapturedRequest) -> CapturedRequest:
+        """The stored sample's redacted cookie, filled in from the saved login (if any)."""
+        if self.login is None:
+            return captured
+        cookies = auth_state.cookie_header(self.login, captured.url)
+        headers = dict(captured.req_headers)
+        names = [k for k in headers if k.lower() == "cookie"]
+        if not cookies or (names and headers[names[0]] != REDACTED):
+            return captured
+        for name in names:
+            del headers[name]
+        headers["cookie"] = cookies
+        return replace(captured, req_headers=headers)
 
     def _guess_pagination(self, ep: Endpoint) -> dict[str, Any] | None:
         samples = self.samples.get(ep.key, [])

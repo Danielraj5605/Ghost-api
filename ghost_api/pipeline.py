@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from ghost_api import drift
@@ -25,6 +25,7 @@ from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.detectors import is_bot_challenge
 from ghost_api.analysis.exposure import exposures, summary_line
 from ghost_api.analysis.models import Endpoint
+from ghost_api.browser import auth_state
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.browser.gate import RequestGate
 from ghost_api.capture.models import CapturedRequest
@@ -160,6 +161,7 @@ class Session:
     steps: list[StepRecord] = field(default_factory=list)
     site: str = ""  # memory and output folder: host or host/section (ghost_api/site.py)
     network: NetworkPolicy | None = None  # where the browser may connect (netguard.py)
+    login: dict[str, Any] | None = None  # a saved login for the site (auth_state.py)
     _blocked: set[str] = field(default_factory=set)
 
     def emit(self, event: Event) -> None:
@@ -182,6 +184,7 @@ class Session:
             policy=self.network,
             gate=gate,
             on_block=self._on_block,
+            storage_state=self.login,
         )
 
     def phase(self, phase: Phase) -> None:
@@ -335,6 +338,7 @@ def open_session(
         screens,
         site=site,
         network=network,
+        login=_saved_login(store, site, bus),
     )
     bus.emit(
         RunStarted(run_id, site, start_url, goal, "refresh" if mode == "refresh" else "run", lang)
@@ -342,6 +346,24 @@ def open_session(
     if network.allow_private:
         bus.emit(Notice("Local target: this computer and the local network may be reached"))
     return session
+
+
+def _saved_login(store: Store, site: str, bus: EventBus) -> dict[str, Any] | None:
+    """The site's saved login (ghost-api login), announced in the run log."""
+    try:
+        found = auth_state.load(store.path, site)
+    except auth_state.LoginError as exc:
+        bus.emit(Notice(str(exc), "warning"))
+        return None
+    if found is None:
+        return None
+    state, meta = found
+    days = auth_state.age_days(meta)
+    note = f"Using your saved login for {site} (saved {days:.0f} day(s) ago)"
+    bus.emit(Notice(note, "warning" if days > 14 else "info",
+                    "If pages show you logged out, run ghost-api login again." if days > 14
+                    else ""))  # fmt: skip
+    return state
 
 
 # --- run and refresh -------------------------------------------------------------------------

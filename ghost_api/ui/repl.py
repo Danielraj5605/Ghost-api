@@ -73,6 +73,8 @@ COMMANDS = [
     Command("/inspect", "/inspect [SITE] [--run N]", "What's stored about a site or a run",
             cli="inspect"),
     Command("/doctor", "/doctor", "Check your LLM keys", cli="doctor"),
+    Command("/login", "/login URL | --list", "Log in to a site once; runs reuse the session",
+            cli="login"),
     Command("/forget", "/forget SITE [--llm-cache]", "Delete everything stored about a site",
             cli="forget"),
     Command("/lang", "/lang python|typescript", "Client language for new runs"),

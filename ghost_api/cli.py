@@ -61,7 +61,7 @@ from ghost_api.pipeline import (
 from ghost_api.probe.replay import ReplayRefused
 from ghost_api.project import ProjectError, default_map, find_project
 from ghost_api.runtime import OperationError, SiteRuntime
-from ghost_api.site import SiteAmbiguous, resolve_site, site_host
+from ghost_api.site import SiteAmbiguous, resolve_site, site_host, site_key
 from ghost_api.ui import keys
 from ghost_api.ui.terminal import (
     ACCENT,
@@ -1376,6 +1376,10 @@ def forget(
                 raise typer.Exit(code=1)
         deleted: dict[str, Any] = {"site": site, "rows": {}, "folders": [], "llm_cache": 0}
         if site:
+            from ghost_api.browser import auth_state
+
+            if auth_state.delete(path, site):
+                console.print(f"[dim]Deleted the saved login for {site}[/]")
             counts, run_ids = store.forget_site(site)
             rows = sum(counts.values())
             deleted["rows"] = counts
@@ -1491,6 +1495,86 @@ def init(
         "  ghost-api            (interactive session)\n"
         "  ghost-api doctor     (check everything)"
     )
+
+
+@app.command()
+def login(
+    url: Annotated[
+        str | None, typer.Argument(help="The site's page to log in on, e.g. https://example.com")
+    ] = None,
+    list_saved: Annotated[bool, typer.Option("--list", help="Show saved logins.")] = False,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Log in to a site yourself, once; Ghost API reuses the session.
+
+    A browser window opens: log in as you normally would (Ghost API never sees your
+    password), then press Enter here. Runs and refreshes then start logged in, and fetch,
+    watch and serve send the session's cookies. Remove it with `ghost-api logout SITE`.
+    """
+    from ghost_api.browser import auth_state
+    from ghost_api.browser.driver import ActionError, BrowserSession
+    from ghost_api.capture.recorder import TrafficRecorder
+    from ghost_api.ui import keys
+
+    path = db or default_db_path()
+    if list_saved or url is None:
+        saved = auth_state.saved_sites(path)
+        if _options["json"]:
+            json_out({"logins": saved})
+        elif not saved:
+            console.print("No saved logins. Save one with: ghost-api login https://example.com")
+        for meta in [] if _options["json"] else saved:
+            age = auth_state.age_days(meta)
+            how = "encrypted" if meta.get("encrypted") else "owner-only file"
+            console.print(f"  {meta['site']}: saved {age:.0f} day(s) ago, "
+                          f"{meta.get('cookies', '?')} cookies, {how}")  # fmt: skip
+        return
+    url = _normalize_url(url)
+    site = site_key(url) or (urlsplit(url).hostname or "")
+    host = urlsplit(url).hostname or ""
+    console.print(f"Opening {url}. Log in in the browser window, then come back here.")
+    with BrowserSession(url, TrafficRecorder(host), headed=True) as browser:
+        try:
+            browser.goto(url)
+        except ActionError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(code=exitcodes.FAILED) from exc
+        with keys.input_paused():
+            typer.prompt("Press Enter when you are logged in", default="", show_default=False)
+        state = browser.export_state()
+    meta = auth_state.save(path, site, state)
+    if _options["json"]:
+        json_out(meta)
+        return
+    how = (
+        "encrypted for your Windows account"
+        if meta["encrypted"]
+        else "in a file only your user can read (not encrypted)"
+    )
+    console.print(
+        f"[green]Saved the login for {site}[/] ({meta['cookies']} cookies, {how}). "
+        f"Remove it with: ghost-api logout {site}"
+    )
+
+
+@app.command()
+def logout(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Delete a site's saved login."""
+    from ghost_api.browser import auth_state
+
+    path = db or default_db_path()
+    names = [m["site"] for m in auth_state.saved_sites(path)]
+    site = domain if domain in names else next((n for n in names if n.startswith(domain)), domain)
+    removed = auth_state.delete(path, site)
+    if _options["json"]:
+        json_out({"site": site, "removed": removed})
+    elif removed:
+        console.print(f"Deleted the saved login for {site}.")
+    else:
+        console.print(f"No saved login for {domain}.")
 
 
 @app.command()
