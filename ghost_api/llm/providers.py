@@ -2,6 +2,11 @@
 
 Models can be overridden in .env, e.g. GHOST_API_GEMINI_MODEL=gemini-2.5-flash-lite.
 The fallback order can be changed with GHOST_API_PROVIDERS=groq,gemini,openrouter.
+
+Local models (Ollama, LM Studio, llama.cpp, vLLM: anything OpenAI-compatible) keep every
+prompt on your machine: set GHOST_API_LOCAL_URL (e.g. http://localhost:11434/v1) and
+GHOST_API_LOCAL_MODEL. Then only the local model is used, unless GHOST_API_PROVIDERS lists
+others too.
 """
 
 from __future__ import annotations
@@ -68,14 +73,39 @@ SPECS: dict[str, _Spec] = {
 }
 
 DEFAULT_ORDER = ("gemini", "groq", "gemini-lite", "openrouter")
+LOCAL = "local"
+
+
+def local_provider() -> Provider | None:
+    """The local OpenAI-compatible model from GHOST_API_LOCAL_URL, if one is set."""
+    url = os.getenv("GHOST_API_LOCAL_URL", "").strip().rstrip("/")
+    if not url:
+        return None
+    return Provider(
+        name=LOCAL,
+        base_url=url,
+        model=os.getenv("GHOST_API_LOCAL_MODEL") or "llama3.1",
+        # Local servers usually need no key; the gateway only needs a value to send one.
+        api_key=os.getenv("GHOST_API_LOCAL_KEY") or "local",
+        json_mode=os.getenv("GHOST_API_LOCAL_JSON_MODE", "") == "1",
+    )
 
 
 def default_providers() -> list[Provider]:
     """Providers in fallback order. Ones without an API key are skipped by the gateway."""
     order = os.getenv("GHOST_API_PROVIDERS")
+    local = local_provider()
+    if not order and local is not None:
+        return [local]  # private by default: nothing goes to a cloud provider
     names = [n.strip() for n in order.split(",") if n.strip()] if order else list(DEFAULT_ORDER)
     providers: list[Provider] = []
     for name in names:
+        if name == LOCAL:
+            if local is None:
+                raise ValueError("GHOST_API_PROVIDERS lists 'local' but GHOST_API_LOCAL_URL "
+                                 "is not set")  # fmt: skip
+            providers.append(local)
+            continue
         spec = SPECS.get(name)
         if spec is None:
             raise ValueError(f"Unknown LLM provider '{name}'. Known: {', '.join(SPECS)}")

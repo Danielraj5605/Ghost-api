@@ -78,6 +78,12 @@ def forget(
 
             if auth_state.delete(path, site):
                 console.print(f"[dim]Deleted the saved login for {site}[/]")
+            from ghost_api.audit import audit_file
+
+            log = audit_file(path, site)
+            if log.exists():
+                log.unlink()
+                console.print(f"[dim]Deleted the audit log for {site}[/]")
             counts, run_ids = store.forget_site(site)
             rows = sum(counts.values())
             deleted["rows"] = counts
@@ -233,6 +239,39 @@ def integrate(
             "\nRestart Claude Code in this folder (approve the ghost-api server when asked), "
             "then try:\n  /ghost-explore https://quotes.toscrape.com/scroll quotes with authors"
         )
+
+
+@app.command()
+def audit(
+    domain: Annotated[str, typer.Argument(help=SITE_HELP)],
+    limit: Annotated[int, typer.Option(help="Show the last N entries.")] = 50,
+    db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
+) -> None:
+    """Every request Ghost API sent to a site itself, and every request its rules blocked
+    (method, host, path, status; never query values, bodies or cookies)."""
+    from ghost_api.audit import audit_file, read
+
+    path = _need_db(db)
+    with Store(path) as store:
+        domain = _site(store, domain)
+    entries = read(path, domain, limit)
+    if _options["json"]:
+        json_out({"site": domain, "file": str(audit_file(path, domain)), "entries": entries})
+        return
+    if not entries:
+        console.print(f"Nothing audited for {domain} yet.")
+        return
+    table = Table(title=f"Audit: {domain} (last {len(entries)})", title_justify="left")
+    for col in ("When", "Run", "Request", "Status", "Decision"):
+        table.add_column(col, overflow="fold")
+    for e in entries:
+        request = f"{e.get('method', '')} {e.get('host', '')}{e.get('path', '')}".strip()
+        when = str(e["at"]).replace("T", " ")[:19]
+        status = str(e.get("status") or "-")
+        decision = str(e.get("decision", ""))
+        table.add_row(when, str(e.get("run") or "-"), request or "-", status, decision)
+    console.print(table)
+    console.print(f"[dim]Full log: {audit_file(path, domain)}[/]")
 
 
 @app.command()

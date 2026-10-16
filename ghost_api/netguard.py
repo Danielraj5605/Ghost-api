@@ -21,8 +21,10 @@ import ipaddress
 import socket
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -132,13 +134,41 @@ class NetworkPolicy:
         self.resolve(parts.hostname, port)
 
 
-def guarded_client(policy: NetworkPolicy, **kwargs: object) -> httpx.Client:
-    """An httpx client that checks every request it sends, redirect hops included."""
+class PinnedBackend(httpcore.SyncBackend):
+    """Connects to the address the policy checked, not to a second DNS answer, so a host
+    name can't be switched to a private address between check and connection (DNS
+    rebinding). TLS still uses the host name, so certificates are checked as usual."""
+
+    def __init__(self, policy: NetworkPolicy) -> None:
+        self.policy = policy
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.NetworkStream:
+        address = self.policy.resolve(host, port)[0]  # raises PolicyDenied when blocked
+        return super().connect_tcp(address, port, timeout, local_address, socket_options)
+
+
+def guarded_client(policy: NetworkPolicy, **kwargs: Any) -> httpx.Client:
+    """An httpx client that checks every request it sends, redirect hops included, and
+    connects only to the addresses it checked."""
 
     def check(request: httpx.Request) -> None:
         policy.check_url(str(request.url))
 
-    return httpx.Client(event_hooks={"request": [check]}, **kwargs)  # type: ignore[arg-type]
+    if "transport" not in kwargs or kwargs["transport"] is None:
+        kwargs.pop("transport", None)
+        transport = httpx.HTTPTransport()
+        pool = getattr(transport, "_pool", None)
+        if pool is not None and hasattr(pool, "_network_backend"):
+            pool._network_backend = PinnedBackend(policy)
+        kwargs["transport"] = transport
+    return httpx.Client(event_hooks={"request": [check]}, **kwargs)
 
 
 @dataclass

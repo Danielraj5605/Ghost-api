@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- Team rules per site in `ghost-api.toml` (`require_terms`, `terms_ok`, `deny_paths`,
+  `max_direct_calls`, `agent`), enforced for runs, refreshes, imports, assistants, fetch,
+  watch and serve; an audit log of every request sent or blocked (`ghost-api audit SITE`).
+- Local LLMs (Ollama, LM Studio...: `GHOST_API_LOCAL_URL`): nothing goes to a cloud provider.
+- Direct requests connect to the exact address that was checked (no DNS-rebinding window).
 - `ghost-api adopt PATH`: finds hand-written calls to hidden APIs in a codebase and the
   client method that replaces each one (JSON for an assistant to apply).
 - `ghost-api verify-spec SPEC SITE`: a published OpenAPI spec compared with reality

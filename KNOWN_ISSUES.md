@@ -313,7 +313,9 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
   API calls that robots.txt disallows (useful when the real API is on another domain, like
   Algolia for hn.algolia.com).
 
-### 39. Direct requests resolve host names twice
+### 39. ~~Direct requests resolve host names twice~~ (fixed 2026-10-17)
+- **Fixed:** direct requests connect to the exact address the policy checked (a pinned
+  network backend), like the browser proxy. A test proves no second lookup happens.
 - **Problem:** The browser's proxy connects to the exact address it checked. Direct requests
   (httpx: robots.txt, endpoint checks, fetch, watch) check the name, then httpx resolves it
   again, so a DNS-rebinding server could switch to a private address in between.

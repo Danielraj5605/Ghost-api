@@ -51,6 +51,10 @@ shows what is saved.
   samples of API replies for naming. Bearer tokens and JWTs are masked first. **Visible page
   text is sent as it is**, so do not run the agent on pages showing data you may not share
   with that provider. `--no-agent` and `generate --no-llm` send nothing to any provider.
+  **With a local model** (`GHOST_API_LOCAL_URL`, e.g. Ollama or LM Studio) nothing goes to a
+  cloud provider at all: only the local model is used unless `GHOST_API_PROVIDERS` says
+  otherwise. When Claude Code or another assistant explores through `ghost-api mcp
+  --explore`, the page summaries go to that assistant instead.
 - **Notifications you set up** for watches (ntfy.sh, a webhook): the change summary you asked
   for. Personal data stays hidden there too.
 - Nothing else. Ghost API has no telemetry and sends no usage data anywhere.
@@ -66,8 +70,8 @@ redirecting the browser or making its page call addresses such as `127.0.0.1`,
   link-local, multicast and other non-public addresses. It connects to the exact address it
   checked, so a host name can't be switched to a private address in between.
 - Direct requests (robots.txt, endpoint checks, fetch, watch, serve) are checked on every
-  redirect hop. They resolve the name again when connecting, which leaves a very small
-  window for DNS rebinding; endpoint checks never follow redirects at all.
+  redirect hop and connect to the exact address that was checked (no second DNS lookup,
+  so no DNS-rebinding window); endpoint checks never follow redirects at all.
 - **Local target mode:** when the site you give Ghost API is itself on your computer or
   network (`localhost`, `127.0.0.1`, a LAN address), private addresses are allowed for that
   run, because you asked for them. The run log says so.
@@ -75,6 +79,27 @@ redirecting the browser or making its page call addresses such as `127.0.0.1`,
   limit before they are sent; blocked requests never reach the server and are listed in the
   run log. Images, scripts and styles load as in any browser, and third-party calls
   (analytics, maps, CDNs) are not checked against their own `robots.txt`.
+
+## Rules for a team, and an audit trail
+
+`ghost-api.toml` can set rules per site that Ghost API enforces everywhere (the browser,
+endpoint tests, fetch, watch, serve and assistants):
+
+```toml
+[project]
+require_terms = true                 # each site needs terms_ok = true before the first run
+
+[sites."example.com"]
+terms_ok = true
+deny_paths = ["/admin", "/api/private"]   # never requested, like a robots.txt Disallow
+max_direct_calls = 30
+agent = false                        # no AI explores this site
+```
+
+Every request Ghost API sends itself, and every request its rules block, is appended to
+`ghost_api_files/audit/<site>.jsonl`: time, run, method, host, path, query parameter
+names, status and decision (never query values, bodies, headers or cookies). Read it with
+`ghost-api audit SITE`. `forget` deletes it with the rest of the site's data.
 
 ## Keeping and deleting data
 

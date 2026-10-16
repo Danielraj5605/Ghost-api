@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -36,11 +37,38 @@ from ghost_api.pipeline import (
     refresh_site,
     robots_policy,
 )
-from ghost_api.site import site_host
+from ghost_api.project import SitePolicy, site_policy
+from ghost_api.site import site_host, site_key
 
 
 class NotAllowed(Exception):
     """robots.txt (or the site) does not allow the start page."""
+
+
+class PolicyBlocked(NotAllowed):
+    """The project's rules for this site (ghost-api.toml) don't allow it."""
+
+
+def enforce(site: str, use_agent: bool) -> SitePolicy:
+    """The site's project rules; raises PolicyBlocked when they forbid this run."""
+    policy, require_terms = site_policy(site)
+    if require_terms and not policy.terms_ok:
+        raise PolicyBlocked(
+            f"This project asks for each site's terms to be checked first: add "
+            f'[sites."{site}"] terms_ok = true to ghost-api.toml once you have.'
+        )
+    if use_agent and not policy.agent:
+        raise PolicyBlocked(
+            f"The project rules say no AI explores {site} (agent = false): run with "
+            "--no-agent, or record it in your browser and use ghost-api import."
+        )
+    return policy
+
+
+def capped(opts: RunOptions, policy: SitePolicy) -> RunOptions:
+    if policy.max_direct_calls is None:
+        return opts
+    return replace(opts, max_probes=min(opts.max_probes, policy.max_direct_calls))
 
 
 class NoLLMKey(Exception):
@@ -101,12 +129,13 @@ def run(
 ) -> str:
     """Explore a site, test what was found, write the client and report. Returns the run's
     status. `started_hook`: called once the checks passed (e.g. to start a live display)."""
+    host = urlsplit(settings.url).hostname or ""
+    opts = capped(opts, enforce(site_key(settings.url) or host, use_agent))
     limiter = RateLimiter(settings.rate_limit)
     robots, allowed = robots_policy(settings.url, settings.ignore_robots, limiter, bus)
     if not allowed:
         raise NotAllowed(f"robots.txt does not allow {settings.url}")
     gateway = make_gateway(settings.max_llm_calls, required=True) if use_agent else None
-    host = urlsplit(settings.url).hostname or ""
     with Store(settings.db_path) as store:
         if started_hook is not None:
             started_hook()
@@ -141,6 +170,9 @@ def refresh(
     started_hook: Callable[[], None] | None = None,
 ) -> tuple[str, int, int]:
     """Re-check a known site from memory. Returns (status, LLM calls now, on the first run)."""
+    policy = enforce(site, use_agent=False)
+    opts = capped(opts, policy)
+    use_llm = use_llm and policy.agent  # agent = false: replays and plain visits only
     with Store(db_path) as store:
         mem = load_memory(store, site)
         if mem is None:

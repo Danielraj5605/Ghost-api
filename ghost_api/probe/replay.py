@@ -10,6 +10,7 @@ Safety rules:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from collections.abc import Callable
@@ -224,10 +225,19 @@ class Replayer:
             self.policy, timeout=TIMEOUT_S, follow_redirects=False
         )
         self.max_requests = max_requests
+        # Called for every request sent or refused: (method, url, status, decision). The
+        # audit log (audit.py) uses it.
+        self.on_sent: Callable[[str, str, int | None, str], None] | None = None
         self.requests_made = 0
 
     def close(self) -> None:
         self._client.close()
+
+    def _note(self, raw: RawRequest, status: int | None, decision: str) -> None:
+        if self.on_sent is not None:
+            # The audit log must never stop a request from being reported.
+            with contextlib.suppress(OSError):
+                self.on_sent(raw.method, raw.url, status, decision)
 
     def robots_allows(self, url: str) -> bool:
         host = (urlsplit(url).hostname or "").lower()
@@ -239,10 +249,13 @@ class Replayer:
         """Send a read-only request. `trusted_read`: the user checked this endpoint only
         reads (e.g. a POST search, see `generate --allow`); otherwise the URL must say so."""
         if not trusted_read and not is_replayable(raw):
+            self._note(raw, None, "refused: may change data")
             raise ReplayRefused(f"{raw.method} requests that may change data are never replayed")
         if self.requests_made >= self.max_requests:
+            self._note(raw, None, "refused: request budget used up")
             raise ReplayRefused(f"probe budget of {self.max_requests} requests used up")
         if not self.robots_allows(raw.url):
+            self._note(raw, None, "refused: robots.txt or project rules")
             raise ReplayRefused("disallowed by robots.txt")
 
         self.limiter.wait()
@@ -263,11 +276,15 @@ class Replayer:
             ) as resp:
                 text = read_limited(resp).text
         except PolicyDenied as exc:
+            self._note(raw, None, "refused: private network")
             raise ReplayRefused(str(exc)) from exc
         except ResponseTooLarge as exc:
+            self._note(raw, resp.status_code, "sent: reply too large, not read")
             return ReplayResult(resp.status_code, None, str(exc))
         except httpx.HTTPError as exc:
+            self._note(raw, 0, f"sent: network error ({type(exc).__name__})")
             return ReplayResult(0, None, f"network error: {type(exc).__name__}")
+        self._note(raw, resp.status_code, "sent")
 
         try:
             body = filters.parse_response_json(text)

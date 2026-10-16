@@ -25,6 +25,7 @@ from ghost_api.analysis.analyzer import analyze, endpoint_keys
 from ghost_api.analysis.detectors import is_bot_challenge
 from ghost_api.analysis.exposure import exposures, summary_line
 from ghost_api.analysis.models import Endpoint
+from ghost_api.audit import AuditLog
 from ghost_api.browser import auth_state
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.browser.gate import RequestGate
@@ -63,10 +64,11 @@ from ghost_api.memory.knowledge import (
     write_lessons,
 )
 from ghost_api.memory.store import Store
-from ghost_api.net import MultiHostRobotsPolicy, RateLimiter, RobotsPolicy, fetch_robots
+from ghost_api.net import DenyPaths, MultiHostRobotsPolicy, RateLimiter, RobotsPolicy, fetch_robots
 from ghost_api.netguard import NetworkPolicy
 from ghost_api.probe.prober import Prober, ProbeReport
 from ghost_api.probe.replay import Replayer, is_replayable
+from ghost_api.project import site_policy
 from ghost_api.site import site_key
 from ghost_api.verify.verifier import Round, Verifier
 
@@ -103,13 +105,29 @@ def screenshots_dir(db_path: Path, run_id: int) -> Path:
 
 def robots_policy(
     url: str, ignore: bool, limiter: RateLimiter, bus: EventBus
-) -> tuple[MultiHostRobotsPolicy, bool]:
+) -> tuple[RobotsPolicy, bool]:
     """The site's robots.txt rules, and whether the start page may be visited.
 
     Returns a ``MultiHostRobotsPolicy`` that lazily fetches robots.txt for any
     new subdomain the agent navigates to (Issue 3).
     """
     host = urlsplit(url).hostname or ""
+    policy, _ = site_policy(site_key(url) or host)
+    robots: RobotsPolicy
+    robots, allowed = _robots_rules(url, host, ignore, limiter, bus)
+    if policy.deny_paths:
+        bus.emit(Notice(f"Project rules: {len(policy.deny_paths)} path(s) are never requested "
+                        f"({', '.join(policy.deny_paths[:4])})"))  # fmt: skip
+        robots = DenyPaths(robots, policy.deny_paths)
+        if not robots.allows(url):
+            bus.emit(Notice(f"Stopped: {url} is denied by the project rules", "error"))
+            return robots, False
+    return robots, allowed
+
+
+def _robots_rules(
+    url: str, host: str, ignore: bool, limiter: RateLimiter, bus: EventBus
+) -> tuple[MultiHostRobotsPolicy, bool]:
     if ignore:
         bus.emit(Notice("robots.txt check skipped (--ignore-robots)", "warning"))
         return (
@@ -163,13 +181,16 @@ class Session:
     site: str = ""  # memory and output folder: host or host/section (ghost_api/site.py)
     network: NetworkPolicy | None = None  # where the browser may connect (netguard.py)
     login: dict[str, Any] | None = None  # a saved login for the site (auth_state.py)
+    audit: AuditLog | None = None  # every request sent or blocked (audit.py)
     _blocked: set[str] = field(default_factory=set)
 
     def emit(self, event: Event) -> None:
         self.bus.emit(event)
 
     def _on_block(self, message: str) -> None:
-        """A request the network rules stopped: said once in the run log."""
+        """A request the network rules stopped: said once in the run log (and audited)."""
+        if self.audit is not None:
+            self.audit.blocked(message)
         if message not in self._blocked:
             self._blocked.add(message)
             self.emit(Notice(message, "warning"))
@@ -340,6 +361,12 @@ def open_session(
         site=site,
         network=network,
         login=_saved_login(store, site, bus),
+        audit=AuditLog(store.path, site, run_id),
+    )
+    audit = session.audit
+    assert audit is not None
+    replayer.on_sent = lambda method, url, status, decision: audit.record(
+        "direct", method, url, status, decision
     )
     bus.emit(
         RunStarted(run_id, site, start_url, goal, "refresh" if mode == "refresh" else "run", lang)

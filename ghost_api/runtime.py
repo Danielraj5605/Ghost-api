@@ -8,7 +8,7 @@ stored sample with the caller's parameters, through the same `Replayer` the prob
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -21,6 +21,7 @@ from ghost_api.analysis.detectors import (
     next_cursor,
 )
 from ghost_api.analysis.models import Endpoint
+from ghost_api.audit import AuditLog
 from ghost_api.browser import auth_state
 from ghost_api.capture import personal
 from ghost_api.capture.filters import REDACTED, is_sensitive_name
@@ -28,8 +29,9 @@ from ghost_api.capture.models import CapturedRequest, RawRequest
 from ghost_api.generator.naming import NamingPlan, apply_plan
 from ghost_api.memory.knowledge import rebuild_raw
 from ghost_api.memory.store import Store
-from ghost_api.net import RateLimiter
+from ghost_api.net import DenyPaths, RateLimiter, RobotsPolicy, fetch_robots
 from ghost_api.probe.replay import Replayer, ReplayResult, apply_params, is_replayable
+from ghost_api.project import site_policy
 from ghost_api.site import site_host
 
 MAX_PAGES = 50
@@ -94,7 +96,18 @@ class SiteRuntime:
         self.samples: dict[str, list[CapturedRequest]] = {}
         for key, req in zip(endpoint_keys(stored), stored, strict=False):
             self.samples.setdefault(key, []).append(req)
-        self.replayer = replayer or Replayer(site_host(site), RateLimiter(rate), max_requests=10**6)
+        policy, _ = site_policy(site)
+        self.replayer = replayer or Replayer(
+            site_host(site),
+            RateLimiter(rate),
+            max_requests=policy.max_direct_calls or 10**6,
+            robots_fetcher=_with_rules(policy.deny_paths, site_host(site)),
+        )
+        if replayer is None:  # fetch, watch, serve, MCP: audited like a run's direct calls
+            log = AuditLog(store.path, site)
+            self.replayer.on_sent = lambda method, url, status, decision: log.record(
+                "direct", method, url, status, decision
+            )
         try:  # ghost-api login: its cookies are added to direct calls
             found = auth_state.load(store.path, site)
         except auth_state.LoginError:
@@ -371,3 +384,14 @@ def load_plan(stored: str | None) -> NamingPlan | None:
         return NamingPlan.model_validate_json(stored)
     except ValueError:
         return None
+
+
+def _with_rules(deny: tuple[str, ...], host: str) -> Callable[[str], RobotsPolicy]:
+    """robots.txt for direct calls, plus the project's denied paths on the site's host."""
+
+    def fetch(url: str) -> RobotsPolicy:
+        rules = fetch_robots(url)
+        same_host = (urlsplit(url).hostname or "").lower() == host.lower()
+        return DenyPaths(rules, deny) if deny and same_host else rules
+
+    return fetch

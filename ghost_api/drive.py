@@ -31,7 +31,8 @@ from ghost_api.memory.knowledge import load_memory, memory_prompt
 from ghost_api.memory.store import Store
 from ghost_api.net import RateLimiter
 from ghost_api.pipeline import RunOptions, Session, finish, open_session, robots_policy
-from ghost_api.workflows import NotAllowed, RunCollector
+from ghost_api.site import site_key
+from ghost_api.workflows import NotAllowed, RunCollector, enforce
 
 T = TypeVar("T")
 MAX_STEPS = 60  # a ceiling, so an assistant can't keep a browser busy forever
@@ -98,6 +99,7 @@ class DriveSession:
     def _start(self) -> dict[str, Any]:
         load_env()
         host = urlsplit(self.url).hostname or ""
+        policy = enforce(site_key(self.url) or host, use_agent=True)  # the assistant decides
         bus = EventBus()
         bus.subscribe(self.collector)
         limiter = RateLimiter(self.rate_limit)
@@ -106,7 +108,8 @@ class DriveSession:
             raise NotAllowed(f"robots.txt does not allow {self.url}")
         self._store = Store(self.db)
         self._session = s = open_session(
-            self._store, bus, host, self.url, self.goal, False, limiter, robots, None, 60,
+            self._store, bus, host, self.url, self.goal, False, limiter, robots, None,
+            min(60, policy.max_direct_calls or 60),
             screens_root=self.db, lang=self.lang,
         )  # fmt: skip
         known = load_memory(self._store, s.site)

@@ -117,8 +117,8 @@ def run(
             settings, opts, bus, use_agent=not no_agent, ask_user=ask,
             stop=keys.stop_requested, started_hook=renderer.start,
         )  # fmt: skip
-    except workflows.NotAllowed:
-        _not_allowed(settings.url)
+    except workflows.NotAllowed as exc:
+        _not_allowed(settings.url, str(exc))
     except workflows.NoLLMKey as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(code=exitcodes.USAGE) from exc
@@ -170,6 +170,19 @@ def import_har(
         raise typer.Exit(code=exitcodes.USAGE) from exc
     for line in summary(recording):
         console.print(f"[dim]{line}[/]")
+    try:  # the project's rules (terms checked, denied paths) apply to imports too
+        policy = workflows.enforce(site_key(recording.start_url) or recording.target_host, False)
+    except workflows.NotAllowed as exc:
+        _not_allowed(recording.start_url, str(exc))
+        return
+    if policy.deny_paths:
+        denied = sum(1 for c, _ in recording.captured if policy.denies(urlsplit(c.url).path))
+        recording.captured = [(c, r) for c, r in recording.captured
+                              if not policy.denies(urlsplit(c.url).path)]  # fmt: skip
+        if denied:
+            console.print(
+                f"[dim]{denied} recorded call(s) left out: denied by the project rules[/]"
+            )
     path = db or default_db_path()
     bus = EventBus()
     renderer = _renderer()
@@ -257,8 +270,8 @@ def refresh(
     except workflows.NothingRemembered as exc:
         console.print(str(exc))
         raise typer.Exit(code=exitcodes.FAILED) from exc
-    except workflows.NotAllowed:
-        _not_allowed(domain)
+    except workflows.NotAllowed as exc:
+        _not_allowed(domain, str(exc))
     finally:
         renderer.close()
     if first:

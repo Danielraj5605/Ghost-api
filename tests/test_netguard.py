@@ -353,3 +353,23 @@ def test_https_style_tunnels_go_through_the_proxy(victim: Server) -> None:
         assert victim.hits == [] and site.paths() == ["/api/items"]
     finally:
         site.close()
+
+
+def test_direct_requests_connect_to_the_address_that_was_checked() -> None:
+    """The client never asks DNS again after the check (no DNS-rebinding window): a name
+    only the policy's resolver knows still reaches the checked address."""
+    site = Server({"/api/items": json_reply()})
+    lookups: list[str] = []
+
+    def resolver(host: str, _port: int) -> list[str]:
+        lookups.append(host)
+        return ["127.0.0.1"]
+
+    policy = NetworkPolicy(resolver=resolver, blocked=lambda _ip, _port: None)
+    try:
+        with guarded_client(policy) as client:
+            reply = client.get(f"http://rebind.test:{site.port}/api/items")
+        assert reply.json() == {"ok": True}
+        assert lookups == ["rebind.test"]  # checked once, then that address was used
+    finally:
+        site.close()

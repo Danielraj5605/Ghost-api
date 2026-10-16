@@ -190,10 +190,12 @@ def _check_lang(lang: str) -> str:
         raise typer.BadParameter(str(exc)) from exc
 
 
-def _not_allowed(url: str) -> None:
+def _not_allowed(url: str, reason: str = "disallowed by robots.txt") -> None:
     if _options["json"]:
-        json_out({"status": "not-allowed", "url": url, "reason": "disallowed by robots.txt",
+        json_out({"status": "not-allowed", "url": url, "reason": reason,
                   "exit_code": exitcodes.NOT_ALLOWED})  # fmt: skip
+    elif not reason.startswith("robots.txt"):  # robots.txt was already reported
+        console.print(f"[yellow]{reason}[/]")
     raise typer.Exit(code=exitcodes.NOT_ALLOWED)
 
 

@@ -11,6 +11,17 @@ the project's database, output folder and defaults, wherever they are started fr
     lang = "typescript"
     rate_limit = 0.5
 
+Per-site rules (a team can write down what is acceptable on each site):
+
+    [project]
+    require_terms = true            # every site needs terms_ok = true before the first run
+
+    [sites."example.com"]
+    terms_ok = true                 # someone checked the site's terms allow this
+    deny_paths = ["/admin", "/api/private"]   # never requested, by the browser or directly
+    max_direct_calls = 30           # endpoint tests and fetches per run
+    agent = false                   # no AI explores this site (Ghost API's or an assistant)
+
 Without a project file, Ghost API behaves as before: `ghost_api.db` and `output/` in the
 current folder. `GHOST_API_DB` and command-line options always win.
 """
@@ -32,11 +43,28 @@ class ProjectError(Exception):
 
 
 @dataclass(frozen=True)
+class SitePolicy:
+    terms_ok: bool = False
+    deny_paths: tuple[str, ...] = ()
+    max_direct_calls: int | None = None
+    agent: bool = True
+
+    def denies(self, path: str) -> bool:
+        return any(path == p or path.startswith(p.rstrip("/") + "/") for p in self.deny_paths)
+
+
+@dataclass(frozen=True)
 class Project:
     root: Path
     database: Path
     output: Path
     defaults: dict[str, Any] = field(default_factory=dict)
+    sites: dict[str, SitePolicy] = field(default_factory=dict)
+    require_terms: bool = False
+
+    def policy(self, site: str) -> SitePolicy:
+        """The rules for a site: its own entry, else its host's, else none."""
+        return self.sites.get(site) or self.sites.get(site.split("/")[0]) or SitePolicy()
 
     @property
     def file(self) -> Path:
@@ -65,12 +93,41 @@ def load_project(path: Path) -> Project:
     defaults = data.get("defaults", {})
     if not isinstance(settings, dict) or not isinstance(defaults, dict):
         raise ProjectError(f"{path}: [project] and [defaults] must be tables")
+    sites = data.get("sites", {})
+    if not isinstance(sites, dict):
+        raise ProjectError(f"{path}: [sites] must be a table of sites")
     return Project(
         root=root,
         database=root / str(settings.get("database", f"{STATE_FOLDER}/ghost_api.db")),
         output=root / str(settings.get("output", "output")),
         defaults=dict(defaults),
+        sites={name: _policy(path, name, rules) for name, rules in sites.items()},
+        require_terms=bool(settings.get("require_terms", False)),
     )
+
+
+def _policy(path: Path, name: str, rules: Any) -> SitePolicy:
+    if not isinstance(rules, dict):
+        raise ProjectError(f'{path}: [sites."{name}"] must be a table')
+    deny = rules.get("deny_paths", [])
+    if not isinstance(deny, list) or not all(isinstance(p, str) and p.startswith("/")
+                                             for p in deny):  # fmt: skip
+        raise ProjectError(f'{path}: deny_paths for "{name}" must be paths like "/admin"')
+    limit = rules.get("max_direct_calls")
+    return SitePolicy(
+        terms_ok=bool(rules.get("terms_ok", False)),
+        deny_paths=tuple(deny),
+        max_direct_calls=int(limit) if limit is not None else None,
+        agent=bool(rules.get("agent", True)),
+    )
+
+
+def site_policy(site: str) -> tuple[SitePolicy, bool]:
+    """(the site's rules, whether the project requires terms_ok), from ghost-api.toml."""
+    project = find_project()
+    if project is None:
+        return SitePolicy(), False
+    return project.policy(site), project.require_terms
 
 
 TEMPLATE = """\

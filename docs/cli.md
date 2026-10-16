@@ -18,6 +18,20 @@ ghost-api adopt PATH [OPTIONS]
 |---|---|
 | `--db` | SQLite database path. |
 
+## `ghost-api audit`
+
+Every request Ghost API sent to a site itself, and every request its rules blocked
+(method, host, path, status; never query values, bodies or cookies).
+
+```
+ghost-api audit DOMAIN [OPTIONS]
+```
+
+| Option | What it does |
+|---|---|
+| `--limit` | Show the last N entries. (default: `50`) |
+| `--db` | SQLite database path. |
+
 ## `ghost-api diff`
 
 What changed in a site's API since the last client version, and what it means.

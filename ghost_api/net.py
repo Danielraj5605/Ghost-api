@@ -145,6 +145,35 @@ class MultiHostRobotsPolicy(RobotsPolicy):
         return self._for(url).verdict(url)
 
 
+class DenyPaths(RobotsPolicy):
+    """robots.txt plus the project's own rules (ghost-api.toml deny_paths) for one host:
+    a denied path is treated exactly like a robots.txt Disallow, everywhere."""
+
+    def __init__(self, inner: RobotsPolicy, deny: tuple[str, ...]) -> None:
+        super().__init__(inner.host, None, True, inner.reason, inner.agent)
+        self.inner = inner
+        self.deny = deny
+
+    @property
+    def crawl_delay(self) -> float | None:
+        return self.inner.crawl_delay
+
+    def _denied(self, url: str) -> bool:
+        parts = urlsplit(url)
+        if (parts.hostname or "").lower() != self.host:
+            return False
+        path = parts.path or "/"
+        return any(path == p or path.startswith(p.rstrip("/") + "/") for p in self.deny)
+
+    def allows(self, url: str) -> bool:
+        return not self._denied(url) and self.inner.allows(url)
+
+    def verdict(self, url: str) -> RobotsVerdict:
+        if self._denied(url):
+            return RobotsVerdict(False, "denied by the project rules (ghost-api.toml)")
+        return self.inner.verdict(url)
+
+
 def evaluate_robots(robots_txt: str, url: str, agent: str = TOOL_NAME) -> RobotsVerdict:
     """Apply robots.txt rules to a URL. Pure function, so it's easy to test."""
     host = (urlsplit(url).hostname or "").lower()
