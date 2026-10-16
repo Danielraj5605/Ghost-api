@@ -41,6 +41,7 @@ nav:
       - When the API changes: github-action.md
       - From Python: guide/python.md
   - Does it help? Measured: benchmark.md
+  - "Gallery: real runs": gallery.md
   - Command reference: cli.md
   - Security and data: security.md
   - Changelog: changelog.md

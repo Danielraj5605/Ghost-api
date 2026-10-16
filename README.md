@@ -392,6 +392,7 @@ test on the demo shop, Claude mapped all five endpoints (all verified) in 12 tur
 alone found them too (7 turns): on easy sites Ghost API's value is what comes after, such as
 checking the live API again in seconds with no LLM, offline tests, change detection, rules and
 an audit trail. Measured in [docs/benchmark.md](docs/benchmark.md).
+Real runs on public practice sites: [docs/gallery.md](docs/gallery.md).
 
 ### From Python
 
