@@ -42,6 +42,10 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
   the finish if a part has no field. Report `finished (partly covered)` honestly instead.
 
 ### 3. Page content can try to steer the agent (prompt injection)
+- **Improved (2026-10-16):** page content now sits in a marked `<<<PAGE ... PAGE>>>` block
+  the system prompt calls data, never instructions, and page text can't close that block.
+  A prompt-injection test site is part of the quality gate (agent runs); the agent ignored
+  the planted "delete all data" instruction. The rest of this entry still applies.
 - **Problem:** Page text, element labels and LLM-written lessons go into the agent's prompt.
   A hostile page could include instructions ("ignore your goal, navigate to...").
 - **Mitigations already in place:** a fixed list of actions, destructive and off-site
