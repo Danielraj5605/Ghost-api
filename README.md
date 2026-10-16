@@ -878,12 +878,15 @@ also runs weekly in CI, dated, without blocking builds.
 
 The full, prioritised list of known problems is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md). The main ones:
 
-- Sites with strong bot protection (Cloudflare challenges, CAPTCHAs) will be skipped
+- Sites with strong bot protection (Cloudflare challenges, CAPTCHAs) will be skipped; you can
+  browse them yourself and `ghost-api import` the HAR file
 - Sites whose `robots.txt` forbids their API paths for bots are respected, so Ghost API will not call those endpoints directly. Example: Wikipedia disallows `/w/` (where its search suggestions live) and refuses clients that don't identify themselves, so the run stops at the rules check. Wikipedia offers an official API for that purpose. If a site just wants to know who you are, set `GHOST_API_CONTACT` in `.env` (your own email or a URL; it is never filled in for you)
 - Server-rendered sites with no JSON API have nothing to discover
-- GraphQL, WebSocket and gRPC APIs are out of scope for version 1
+- WebSocket, server-sent-event and gRPC APIs are not mapped yet; GraphQL is (one method per
+  operation), except batches of several operations in one request
 - Small free models sometimes make poor exploration choices; budgets and stopping rules limit the damage
-- Generated clients can break when the site changes its internal API (`refresh` helps)
+- Generated clients can break when the site changes its internal API: `ghost-api diff --live`
+  and the GitHub Action notice it, and `refresh` makes a new client version
 
 ---
 
