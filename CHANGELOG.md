@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Added
+- `--third-party-robots`: the page's API calls to other sites are checked against those
+  sites' robots.txt too (closes KNOWN_ISSUES #38 as an option).
 - docs/benchmark.md: Claude Code alone vs with Ghost API, measured (including where Claude
   alone does as well). `diff` labels changes from the live API `[live]`, apart from changes
   in the generated client.

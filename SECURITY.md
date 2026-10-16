@@ -78,7 +78,8 @@ redirecting the browser or making its page call addresses such as `127.0.0.1`,
 - The browser's page loads and the site's own API calls follow `robots.txt` and the rate
   limit before they are sent; blocked requests never reach the server and are listed in the
   run log. Images, scripts and styles load as in any browser, and third-party calls
-  (analytics, maps, CDNs) are not checked against their own `robots.txt`.
+  (analytics, maps, CDNs) are not checked against their own `robots.txt` unless you
+  use `--third-party-robots`, which checks the page's API calls to other sites too.
 
 ## Rules for a team, and an audit trail
 

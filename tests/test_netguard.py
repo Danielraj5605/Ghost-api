@@ -19,7 +19,7 @@ from ghost_api.browser.gate import RequestGate
 from ghost_api.capture import recorder as recorder_module
 from ghost_api.capture.models import RawRequest
 from ghost_api.capture.recorder import TrafficRecorder
-from ghost_api.net import RateLimiter, RobotsPolicy
+from ghost_api.net import MultiHostRobotsPolicy, RateLimiter, RobotsPolicy
 from ghost_api.netguard import (
     NetworkPolicy,
     PolicyDenied,
@@ -373,3 +373,26 @@ def test_direct_requests_connect_to_the_address_that_was_checked() -> None:
         assert lookups == ["rebind.test"]  # checked once, then that address was used
     finally:
         site.close()
+
+
+def test_third_party_robots_are_checked_only_when_asked() -> None:
+    """The page calls another site's API; that site's robots.txt disallows it."""
+    other = Server({
+        "/robots.txt": (200, {"Content-Type": "text/plain"}, b"User-agent: *\nDisallow: /api/"),
+        "/api/data": json_reply(),
+    })  # fmt: skip
+    other_url = f"http://localhost:{other.port}"  # another host name than 127.0.0.1
+    site = Server({"/": html(f"<script>fetch('{other_url}/api/data').catch(() => {{}})</script>")})
+    try:
+        for checked in (False, True):
+            other.hits.clear()
+            seed = RobotsPolicy.from_text("127.0.0.1", "User-agent: *\nDisallow:")
+            robots = MultiHostRobotsPolicy(seed, None)
+            gate = RequestGate("127.0.0.1", robots, None, third_party_robots=checked)
+            with BrowserSession(site.url + "/", TrafficRecorder("127.0.0.1"), gate=gate) as b:
+                b.goto(site.url + "/")
+            called = any(p.startswith("/api/data") for p in other.paths())
+            assert called is not checked  # blocked only with the option on
+    finally:
+        site.close()
+        other.close()

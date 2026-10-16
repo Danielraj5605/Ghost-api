@@ -93,6 +93,7 @@ class RunOptions:
     no_generate: bool = False
     no_verify: bool = False
     out: Path = Path("output")
+    third_party_robots: bool = False  # also check other sites' robots.txt (browser calls)
 
 
 def screenshots_dir(db_path: Path, run_id: int) -> Path:
@@ -181,6 +182,7 @@ class Session:
     site: str = ""  # memory and output folder: host or host/section (ghost_api/site.py)
     network: NetworkPolicy | None = None  # where the browser may connect (netguard.py)
     login: dict[str, Any] | None = None  # a saved login for the site (auth_state.py)
+    third_party_robots: bool = False  # RunOptions.third_party_robots
     audit: AuditLog | None = None  # every request sent or blocked (audit.py)
     _blocked: set[str] = field(default_factory=set)
 
@@ -198,7 +200,13 @@ class Session:
     def browser(self) -> BrowserSession:
         """A browser whose every request follows the run's rules: no private addresses
         (unless the target itself is local), robots.txt and the rate limit."""
-        gate = RequestGate(self.host, self.robots, self.replayer.limiter, self._on_block)
+        gate = RequestGate(
+            self.host,
+            self.robots,
+            self.replayer.limiter,
+            self._on_block,
+            third_party_robots=self.third_party_robots,
+        )
         return BrowserSession(
             self.start_url,
             self.recorder,

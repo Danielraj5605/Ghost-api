@@ -304,7 +304,10 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
 - **Fix:** Support ntfy access tokens (`ntfy:topic?token=...`) or a self-hosted server
   (`GHOST_API_NTFY_URL`, already supported).
 
-### 38. Third-party requests in the browser are not checked against their robots.txt
+### 38. ~~Third-party requests in the browser are not checked against their robots.txt~~ (option added 2026-10-17)
+- **Now:** `--third-party-robots` (or `third_party_robots = true` under `[defaults]` in
+  `ghost-api.toml`) checks the page's API calls to other sites against their robots.txt
+  before they are sent. Off by default: it fetches one robots.txt per third-party host.
 - **Problem:** The request gate checks robots.txt for page loads and the site's own API calls.
   Calls a page makes to other companies' servers (analytics, maps, CDNs) load as in any
   browser; only the private-address rule applies to them.

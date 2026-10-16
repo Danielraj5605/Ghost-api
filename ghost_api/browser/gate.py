@@ -61,7 +61,11 @@ class RequestGate:
         on_block: Callable[[str], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        third_party_robots: bool = False,
     ) -> None:
+        """`third_party_robots`: also check the page's API calls to other sites (search
+        services, maps...) against those sites' own robots.txt."""
+        self.third_party_robots = third_party_robots
         self.target_host = target_host
         self.robots = robots
         self.limiter = limiter
@@ -82,6 +86,10 @@ class RequestGate:
         api_call = first_party and resource_type in API_TYPES
         if (navigation or api_call) and self.robots is not None and not self.robots.allows(url):
             return "disallowed by robots.txt"
+        third_party_api = not first_party and resource_type in API_TYPES
+        checked = third_party_api and self.third_party_robots and self.robots is not None
+        if checked and self.robots is not None and not self.robots.allows(url):
+            return "disallowed by that site's robots.txt"
         if api_call or (navigation and first_party):
             self._space_out((parts.hostname or "").lower())
         return None

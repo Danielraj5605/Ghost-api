@@ -145,6 +145,7 @@ def run(
         )  # fmt: skip
         if stop is not None:
             s.stop = stop
+        s.third_party_robots = opts.third_party_robots
         known = load_memory(store, s.site)
         if known is not None:
             s.memory = memory_prompt(known.endpoints, known.lessons)
@@ -193,6 +194,7 @@ def refresh(
         )  # fmt: skip
         if stop is not None:
             s.stop = stop
+        s.third_party_robots = opts.third_party_robots
         s.memory = memory_prompt(mem.endpoints, mem.lessons)
         started = time.monotonic()
         status, reason = refresh_site(s, mem, opts.max_steps)

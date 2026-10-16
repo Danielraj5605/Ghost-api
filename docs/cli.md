@@ -257,6 +257,7 @@ ghost-api refresh DOMAIN [OPTIONS]
 | `--no-verify` | Don't run the generated tests against the API. |
 | `--out` | Folder for generated clients. (default: `output`) |
 | `--no-llm` | Never call the LLM (no agent, URL-based names). |
+| `--third-party-robots` | Also check the page's API calls to other sites against their robots.txt. |
 | `--lang` | Client language: python or typescript. (default: `python`) |
 | `--db` | SQLite database path. |
 
@@ -298,6 +299,7 @@ ghost-api run URL [OPTIONS]
 | `--max-probes` | Maximum direct API calls for testing endpoints. (default: `60`) |
 | `--no-generate` | Don't generate a client. |
 | `--no-verify` | Don't run the generated tests against the API. |
+| `--third-party-robots` | Also check the page's API calls to other sites against their robots.txt. |
 | `--out` | Folder for generated clients. (default: `output`) |
 
 ## `ghost-api serve`

@@ -76,6 +76,13 @@ def run(
     no_verify: Annotated[
         bool, typer.Option("--no-verify", help="Don't run the generated tests against the API.")
     ] = False,
+    third_party_robots: Annotated[
+        bool,
+        typer.Option(
+            "--third-party-robots",
+            help="Also check the page's API calls to other sites against their robots.txt.",
+        ),
+    ] = False,
     out: Annotated[Path, typer.Option(help="Folder for generated clients.")] = Path("output"),
 ) -> None:
     """Explore a website with the AI agent and map its hidden API."""
@@ -105,6 +112,7 @@ def run(
         no_generate=no_generate,
         no_verify=no_verify,
         out=out,
+        third_party_robots=third_party_robots,
     )
     bus = EventBus()
     renderer = _renderer()
@@ -242,6 +250,13 @@ def refresh(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Never call the LLM (no agent, URL-based names).")
     ] = False,
+    third_party_robots: Annotated[
+        bool,
+        typer.Option(
+            "--third-party-robots",
+            help="Also check the page's API calls to other sites against their robots.txt.",
+        ),
+    ] = False,
     lang: Annotated[str, typer.Option(help="Client language: python or typescript.")] = "python",
     db: Annotated[Path | None, typer.Option(help="SQLite database path.")] = None,
 ) -> None:
@@ -255,7 +270,8 @@ def refresh(
     with Store(path) as store:
         domain = _site(store, domain)
     opts = RunOptions(lang=lang, headed=headed, max_steps=max_steps, max_probes=max_probes,
-                      no_verify=no_verify, out=out)  # fmt: skip
+                      no_verify=no_verify, out=out,
+                      third_party_robots=third_party_robots)  # fmt: skip
     bus = EventBus()
     renderer = _renderer()
     bus.subscribe(renderer.handle)
