@@ -179,9 +179,9 @@ def test_generate_json_names_the_client(project: Path) -> None:
 
 
 def test_robots_refusal_has_its_own_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    from ghost_api import cli
+    from ghost_api import workflows
 
-    monkeypatch.setattr(cli, "robots_policy", lambda *a: (None, False))
+    monkeypatch.setattr(workflows, "robots_policy", lambda *a: (None, False))
     result = runner.invoke(app, ["--json", "run", "https://ex.com/", "-g", "x", "--no-agent"])
     assert result.exit_code == exitcodes.NOT_ALLOWED
     assert json.loads(result.stdout)["status"] == "not-allowed"
