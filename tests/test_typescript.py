@@ -33,9 +33,10 @@ from ghost_api.generator.ts_gen import (
 )
 from ghost_api.verify.runner import run_node_tests
 from ghost_api.verify.verifier import Verifier
-from tests.fake_secrets import API_KEY
+from tests.fake_secrets import API_KEY, fake_value
 
 NODE = shutil.which("node")
+WRONG_KEY = fake_value("wrong")  # a key the fake API rejects
 NPX = shutil.which("npx")
 needs_node = pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 
@@ -260,7 +261,7 @@ for await (const p of api.iterGetItems()) pages.push(p.page);
 const item = await api.getItem(11);
 const search = await api.postSearch("dune");
 let error = "";
-try {{ await new {cls}({{ apiKey: "fake-removed" }}).getItems(); }} catch (e) {{
+try {{ await new {cls}({{ apiKey: "{WRONG_KEY}" }}).getItems(); }} catch (e) {{
   error = `${{(e as Error).name}} ${{(e as {{ status: number }}).status}}`;
 }}
 console.log(JSON.stringify({{ first: page.items[0].itemName, pages, item: item.class,
