@@ -317,7 +317,10 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
   hop. **Fix:** an httpx transport that connects to the checked address (keeping the host
   name for TLS).
 
-### 40. No per-run permissions summary yet
+### 40. ~~No per-run permissions summary yet~~ (fixed 2026-10-16)
+- **Fixed:** every run records a "Network and permissions" summary (hosts, robots.txt,
+  rate limit, direct calls, blocked requests, saved login, LLM calls), shown in report.md,
+  the terminal and `--json`. The HTML report shows it after the next frontend update.
 - **Problem:** improvement.md asks for a summary of each run's hosts, third-party hosts,
   robots checks, request budgets and exceptions. Blocked requests and local target mode are
   in the run log, but there is no single summary in the report.

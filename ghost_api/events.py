@@ -138,6 +138,23 @@ class ClientGenerated(Event):
 
 
 @dataclass
+class NetworkSummary(Event):
+    """What a run sent where, and which rules applied (the report's permissions section)."""
+
+    kind: ClassVar[str] = "network"
+    target: str  # the site's host
+    robots: str  # how robots.txt was checked ("allowed by robots.txt", "check skipped"...)
+    rate_limit: float  # requests per second, at most
+    local_target: bool  # private addresses allowed (the target itself is local)
+    saved_login: bool  # a saved login (ghost-api login) was used
+    api_calls_seen: int  # API calls the page made (kept after filtering)
+    direct_calls: int  # requests Ghost API sent itself (endpoint tests)
+    third_party_hosts: list[str] = field(default_factory=list)  # API hosts besides the site
+    blocked: list[str] = field(default_factory=list)  # requests the rules stopped
+    llm_calls: int = 0
+
+
+@dataclass
 class UsageUpdated(Event):
     kind: ClassVar[str] = "usage"
     answered: int

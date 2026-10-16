@@ -21,6 +21,28 @@ from ghost_api.site import site_host
 RESULT_MARK = {"confirmed": "confirmed", "rejected": "rejected", "inconclusive": "inconclusive"}
 
 
+def _network_section(net: dict[str, Any]) -> list[str]:
+    """What the run sent where, and which rules applied."""
+    rows = [
+        ("Site", f"`{net['target']}`" + (" (local target: private addresses allowed)"
+                                         if net.get("local_target") else "")),
+        ("robots.txt", _md(str(net.get("robots", "")))),
+        ("Rate limit", f"at most {net.get('rate_limit', 0)} request(s) per second per site"),
+        ("API calls the pages made", str(net.get("api_calls_seen", 0))),
+        ("Direct calls Ghost API sent", f"{net.get('direct_calls', 0)} (read-only endpoint tests)"),
+        ("Other API hosts", ", ".join(f"`{h}`" for h in net.get("third_party_hosts", []))
+         or "none"),
+        ("Saved login used", "yes" if net.get("saved_login") else "no"),
+        ("LLM calls", str(net.get("llm_calls", 0))),
+    ]  # fmt: skip
+    out = ["| | |", "|---|---|", *(f"| {k} | {v} |" for k, v in rows)]
+    blocked = net.get("blocked") or []
+    out += ["", f"**Blocked by the rules ({len(blocked)}):**" if blocked else
+            "Nothing was blocked by the network rules."]  # fmt: skip
+    out += [f"- {_md(b)}" for b in blocked[:30]]
+    return out
+
+
 def build_report(store: Store, domain: str, run_id: int, spec: ClientSpec | None = None) -> str:
     run = store.get_run(run_id)
     if run is None:
@@ -46,6 +68,9 @@ def build_report(store: Store, domain: str, run_id: int, spec: ClientSpec | None
     exposed = exposures(endpoints, store.requests_for_domain(domain))
     if exposed:
         out += ["", "## Personal data exposed", "", *_exposure_section(exposed)]
+    network = [e for e in store.events_for_run(run_id) if e.get("type") == "network"]
+    if network:
+        out += ["", "## Network and permissions", "", *_network_section(network[-1])]
     out += ["", "## Hypotheses tested", ""]
     out += _hypotheses(hypotheses) or ["No direct-call tests in this run."]
     out += ["", "## How the agent explored", ""]

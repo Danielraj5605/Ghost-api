@@ -38,6 +38,7 @@ from ghost_api.events import (
     Event,
     EventBus,
     HypothesisTested,
+    NetworkSummary,
     Notice,
     Phase,
     PhaseChanged,
@@ -348,6 +349,23 @@ def open_session(
     return session
 
 
+def network_summary(s: Session) -> NetworkSummary:
+    third_party = sorted({urlsplit(c.url).hostname or "" for c in s.recorder.captured
+                          if c.third_party} - {""})  # fmt: skip
+    return NetworkSummary(
+        target=s.host,
+        robots=s.robots.reason,
+        rate_limit=round(1 / s.replayer.limiter.interval, 2) if s.replayer.limiter.interval else 0,
+        local_target=bool(s.network and s.network.allow_private),
+        saved_login=s.login is not None,
+        api_calls_seen=len(s.recorder.captured),
+        direct_calls=s.replayer.requests_made,
+        third_party_hosts=third_party,
+        blocked=sorted(s._blocked),
+        llm_calls=s.gateway.usage.answered if s.gateway is not None else 0,
+    )
+
+
 def _saved_login(store: Store, site: str, bus: EventBus) -> dict[str, Any] | None:
     """The site's saved login (ghost-api login), announced in the run log."""
     try:
@@ -570,6 +588,7 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
         store.record_usage(s.run_id, s.gateway.usage.answered, s.gateway.usage.tokens)
         s.emit(usage_event(s.gateway))
         s.gateway.close()
+    s.emit(network_summary(s))
     exports = write_exports(store, site, s.run_id, opts.out, generated.spec if generated else None)
 
     s.emit(

@@ -33,6 +33,7 @@ from ghost_api.events import (
     ClientGenerated,
     EndpointsUpdated,
     EventBus,
+    NetworkSummary,
     Notice,
     RunFinished,
     RunStarted,
@@ -213,6 +214,10 @@ class _RunResult:
             self.data["endpoints"] = event.endpoints
         elif isinstance(event, ClientGenerated):
             self.data["client"] = event.to_dict()
+        elif isinstance(event, NetworkSummary):
+            network = event.to_dict()
+            network.pop("type", None)
+            self.data["network"] = network
         elif isinstance(event, RunFinished):
             finished = event.to_dict()
             finished.pop("type", None)

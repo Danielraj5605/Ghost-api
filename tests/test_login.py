@@ -100,6 +100,10 @@ def test_runs_and_fetch_use_the_saved_login(site: Site, tmp_path: Path) -> None:
     assert run.exit_code == 0, run.output
     me = next(e for e in json.loads(run.stdout)["endpoints"] if e["path"] == "/api/me")
     assert me["statuses"] == [200]  # the browser was logged in
+    network = json.loads(run.stdout)["network"]
+    assert network["saved_login"] and network["local_target"] and network["direct_calls"] >= 1
+    report = (out / "127.0.0.1" / "report.md").read_text(encoding="utf-8")
+    assert "## Network and permissions" in report and "| Saved login used | yes |" in report
 
     fetched = runner.invoke(app, ["--json", "fetch", "127.0.0.1", "get_me", "--db", str(db),
                                   "--out", str(out)])  # fmt: skip

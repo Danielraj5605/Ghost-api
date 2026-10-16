@@ -30,6 +30,7 @@ from ghost_api.events import (
     EndpointsUpdated,
     Event,
     HypothesisTested,
+    NetworkSummary,
     Notice,
     PhaseChanged,
     ProbeFinished,
@@ -290,6 +291,14 @@ class TerminalRenderer:
         if e.result.startswith(("rejected", "failed")):
             self._print(Text(f"     {e.result}", style="yellow"))
         self.activity = f"Step {e.step}: {e.action}"
+
+    def _on_network(self, e: NetworkSummary) -> None:
+        parts = [f"{e.direct_calls} direct call(s)", e.robots]
+        if e.blocked:
+            parts.append(f"{len(e.blocked)} blocked")
+        if e.saved_login:
+            parts.append("saved login")
+        self._print(Text("  Network: " + " · ".join(parts), style="dim"))
 
     def _on_endpoints(self, e: EndpointsUpdated) -> None:
         self.endpoints = e.endpoints
