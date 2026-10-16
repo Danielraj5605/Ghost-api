@@ -48,6 +48,7 @@ dependencies = [
 [project.optional-dependencies]
 mcp = ["mcp>=1.2"]          # `ghost-api mcp`: sites as tools for AI assistants
 notify = ["plyer>=2.1"]     # desktop notifications for `ghost-api watch`
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5"]  # the documentation site (mkdocs.yml)
 dev = [
     "pytest>=8", "ruff>=0.6", "mypy>=1.11", "openapi-spec-validator>=0.7", "types-PyYAML",
     "psutil>=5.9", "types-psutil", "pywinpty>=2.0; sys_platform == 'win32'",

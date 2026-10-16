@@ -50,3 +50,6 @@ Thumbs.db
 
 # Pages the examples generate when run
 examples/*/*.html
+
+# Built documentation site
+site/

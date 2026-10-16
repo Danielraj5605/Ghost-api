@@ -1,0 +1,44 @@
+site_name: Ghost API
+site_description: Turn any website's hidden API into a typed, tested client.
+repo_url: https://github.com/Danielraj5605/Ghost-api
+edit_uri: edit/main/docs/
+strict: true
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      toggle: { icon: material/weather-sunny, name: Light mode }
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets: { base_path: ["."], check_paths: true }
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - Exploring a site: guide/exploring.md
+      - Using the client: guide/clients.md
+      - Data without code: guide/data.md
+      - When the API changes: github-action.md
+      - From Python: guide/python.md
+  - Command reference: cli.md
+  - Security and data: security.md
+  - Changelog: changelog.md
