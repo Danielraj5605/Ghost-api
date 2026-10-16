@@ -12,10 +12,11 @@ from pydantic import BaseModel
 from ghost_api.llm.gateway import BudgetExceeded, LLMGateway, LLMUnavailable, extract_json
 from ghost_api.llm.providers import Provider, default_providers
 from ghost_api.memory.store import Store
-from tests.fake_secrets import bearer, fake_jwt, fake_token
+from tests.fake_secrets import bearer, fake_jwt, fake_token, fake_value
 
-A = Provider("alpha", "https://alpha.test/v1", "a-model", api_key="fake-removed-a")
-B = Provider("beta", "https://beta.test/v1", "b-model", api_key="fake-removed-b", json_mode=False)
+KEY_A, KEY_B = fake_value("alpha"), fake_value("beta")
+A = Provider("alpha", "https://alpha.test/v1", "a-model", api_key=KEY_A)
+B = Provider("beta", "https://beta.test/v1", "b-model", api_key=KEY_B, json_mode=False)
 
 
 class Answer(BaseModel):
@@ -75,7 +76,7 @@ def test_plain_text_reply_and_usage() -> None:
     assert (reply.text, reply.provider, reply.cached) == ("hello", "alpha", False)
     assert gw.usage.calls == 1 and gw.usage.tokens == 8
     sent = fake.requests[0]
-    assert sent.headers["authorization"] == "Bearer fake-removed-a"
+    assert sent.headers["authorization"] == f"Bearer {KEY_A}"
     assert json.loads(sent.content)["model"] == "a-model"
 
 

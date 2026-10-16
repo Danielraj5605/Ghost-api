@@ -12,17 +12,21 @@ import pytest
 from ghost_api.browser.driver import BrowserSession
 from ghost_api.capture.recorder import TrafficRecorder
 from ghost_api.memory.store import Store
+from tests.fake_secrets import fake_value
 
-PAGE = b"""<!doctype html><html><body>
+# Values the page leaks; none of them may be stored. Built at run time, not real.
+LEAKS = {name: fake_value(name) for name in ("querykey", "bearer", "password", "cookie", "reply")}
+
+PAGE = f"""<!doctype html><html><body>
 <img src="/logo.png">
 <script>
-  fetch('/api/items?page=1&api_key=fake-removed',
-        {headers: {'Authorization': 'Bear' + 'er ' + 'fake-removed-' + 'TOKEN'}});
-  fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                       body: JSON.stringify({user: 'bob', password: 'fake-removed'})});
+  fetch('/api/items?page=1&api_key={LEAKS["querykey"]}',
+        {{headers: {{'Authorization': 'Bear' + 'er ' + '{LEAKS["bearer"]}'}}}});
+  fetch('/api/login', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                       body: JSON.stringify({{user: 'bob', password: '{LEAKS["password"]}'}})}});
   fetch('/collect?event=view');
   fetch('/api/page.html');
-</script></body></html>"""
+</script></body></html>""".encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -33,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         if cookie:
-            self.send_header("Set-Cookie", "sessionid=fake-removed; Path=/")
+            self.send_header("Set-Cookie", f"sessionid={LEAKS['cookie']}; Path=/")
         self.end_headers()
         self.wfile.write(body)
 
@@ -43,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/items"):
             body = {
                 "items": [{"id": 1, "author": "Ada", "key": "OL1W"}],
-                "accessToken": "fake-removed",
+                "accessToken": LEAKS["reply"],
             }
             self._send(200, "application/json", json.dumps(body).encode())
         elif self.path.startswith("/api/page.html"):
@@ -87,7 +91,7 @@ def test_capture_filters_noise_and_redacts_secrets(server: str, tmp_path: Path) 
         rows = store.requests_for_run(run_id)
         stored = json.dumps([asdict(r) for r in rows])
 
-    assert "fake-removed" not in stored
+    assert not [name for name, value in LEAKS.items() if value in stored]
     # Normal data survives redaction.
     items = next(json.loads(r.resp_body or "") for r in rows if "/api/items" in r.url)
     assert items["items"] == [{"id": 1, "author": "Ada", "key": "OL1W"}]

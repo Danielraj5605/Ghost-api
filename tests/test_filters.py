@@ -4,7 +4,7 @@ import pytest
 
 from ghost_api.capture import filters
 from ghost_api.capture.filters import REDACTED
-from tests.fake_secrets import bearer, fake_jwt, fake_token
+from tests.fake_secrets import API_KEY, PASSWORD, SESSION_ID, TOKEN, bearer, fake_jwt, fake_token
 
 
 @pytest.mark.parametrize(
@@ -78,14 +78,14 @@ def test_non_sensitive_names(name: str) -> None:
 
 def test_redact_headers() -> None:
     out = filters.redact_headers(
-        {"Cookie": "sid=fake-removed", "Authorization": "Bearer fake-removed", "Accept": "application/json"}
+        {"Cookie": f"sid={SESSION_ID}", "Authorization": bearer(), "Accept": "application/json"}
     )
     assert out == {"Cookie": REDACTED, "Authorization": REDACTED, "Accept": "application/json"}
 
 
 def test_redact_url_query_params() -> None:
-    out = filters.redact_url("https://example.com/api?page=2&api_key=fake-removed&q=dune")
-    assert "fake-removed" not in out
+    out = filters.redact_url(f"https://example.com/api?page=2&api_key={API_KEY}&q=dune")
+    assert API_KEY not in out
     assert "page=2" in out and "q=dune" in out
 
 
@@ -98,8 +98,8 @@ def test_redact_json_nested_keeps_normal_fields() -> None:
     body = {
         "author": "Albert Einstein",
         "key": "OL123W",
-        "user": {"name": "a", "accessToken": "fake-removed", "password": "fake-removed"},
-        "items": [{"session_id": "s1", "title": "x"}],
+        "user": {"name": "a", "accessToken": TOKEN, "password": PASSWORD},
+        "items": [{"session_id": SESSION_ID, "title": "x"}],
     }
     out = filters.redact_json(body)
     assert out["author"] == "Albert Einstein"
@@ -117,11 +117,11 @@ def test_redact_text_masks_jwt_and_bearer() -> None:
 
 
 def test_redact_body_json_and_form() -> None:
-    out = filters.redact_body('{"q": "dune", "token": "t"}', "application/json")
+    out = filters.redact_body(json.dumps({"q": "dune", "token": TOKEN}), "application/json")
     assert json.loads(out or "") == {"q": "dune", "token": REDACTED}
 
-    form = filters.redact_body("user=bob&password=fake-removed", "application/x-www-form-urlencoded")
-    assert form is not None and "fake-removed" not in form and "user=bob" in form
+    form = filters.redact_body(f"user=bob&password={PASSWORD}", "application/x-www-form-urlencoded")
+    assert form is not None and PASSWORD not in form and "user=bob" in form
 
 
 def test_redact_body_handles_empty() -> None:

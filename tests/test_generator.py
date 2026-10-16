@@ -28,7 +28,7 @@ from ghost_api.generator.naming import (
 )
 from ghost_api.generator.python_gen import GenerationError, check, render, write
 from ghost_api.generator.spec import build_spec, is_user_input
-from tests.fake_secrets import bearer
+from tests.fake_secrets import API_KEY, bearer, fake_value
 
 HOST = "shop.test"
 START = f"https://{HOST}/"
@@ -283,7 +283,7 @@ def fake_shop(request: httpx.Request) -> httpx.Response:
     url = urlsplit(str(request.url))
     q = {k: v[0] for k, v in parse_qs(url.query).items()}
     if url.path == "/api/items":
-        if q.get("api_key") != "fake-removed":
+        if q.get("api_key") != API_KEY:
             return httpx.Response(401, json={"error": "key"})
         page = int(q.get("page", "1"))
         if page > 3:
@@ -328,7 +328,7 @@ def client(module: ModuleType, **kw: Any) -> Any:
 
 
 def test_generated_client_returns_typed_models(generated: ModuleType) -> None:
-    api = client(generated, api_key="fake-removed")
+    api = client(generated, api_key=API_KEY)
     page = api.get_items()
     assert page.items[0].item_name == "n0" and page.items[0].class_ == "a"
     item = api.get_item(id=12)
@@ -338,7 +338,7 @@ def test_generated_client_returns_typed_models(generated: ModuleType) -> None:
 
 
 def test_generated_iterator_walks_pages(generated: ModuleType) -> None:
-    api = client(generated, api_key="fake-removed")
+    api = client(generated, api_key=API_KEY)
     pages = list(api.iter_get_items())
     assert [p.page for p in pages] == [1, 2, 3]  # stops on has_next=False
     assert len(list(api.iter_get_items(max_pages=2))) == 2
@@ -348,7 +348,7 @@ def test_generated_credentials(generated: ModuleType, monkeypatch: pytest.Monkey
     monkeypatch.delenv("SHOP_TEST_API_KEY", raising=False)
     with pytest.raises(generated.ShopTestError, match="SHOP_TEST_API_KEY"):
         client(generated).get_items()
-    monkeypatch.setenv("SHOP_TEST_API_KEY", "fake-removed")
+    monkeypatch.setenv("SHOP_TEST_API_KEY", API_KEY)
     assert client(generated).get_items().page == 1
 
 
@@ -362,7 +362,7 @@ def test_generated_errors_and_retries(generated: ModuleType) -> None:
         return httpx.Response(401, json={"error": "nope"})
 
     api = generated.ShopTestClient(
-        api_key="fake-removed",
+        api_key=fake_value("wrong"),
         max_requests_per_second=0,
         http_client=httpx.Client(transport=httpx.MockTransport(flaky)),
     )
@@ -400,7 +400,7 @@ def test_generated_async_client_matches_the_sync_one(generated: ModuleType) -> N
 
     async def main() -> tuple[Any, list[int]]:
         async with generated.AsyncShopTestClient(
-            api_key="fake-removed",
+            api_key=API_KEY,
             max_requests_per_second=0,
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(fake_shop)),
         ) as api:

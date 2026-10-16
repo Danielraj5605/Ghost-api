@@ -27,3 +27,15 @@ def fake_token() -> str:
 
 def bearer() -> str:
     return " ".join(["Bearer", fake_token()])
+
+
+def fake_value(label: str) -> str:
+    """A placeholder credential (an API key, a password, a session id) for tests, built
+    from parts so no credential-like literal sits in the source: fake-<label>-0000."""
+    return "-".join(["fake", label, "0000"])
+
+
+API_KEY = fake_value("apikey")
+PASSWORD = fake_value("password")
+SESSION_ID = fake_value("session")
+TOKEN = fake_value("token")

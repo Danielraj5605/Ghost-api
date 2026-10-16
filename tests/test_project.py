@@ -22,6 +22,7 @@ from ghost_api.project import (
     load_project,
     write_project,
 )
+from tests.fake_secrets import fake_value
 
 runner = CliRunner()
 
@@ -142,10 +143,11 @@ def test_init_saves_a_key_without_printing_it(
     for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"):
         monkeypatch.setenv(name, "")
     monkeypatch.setenv("GHOST_API_HOME", str(tmp_path / "home"))
-    result = runner.invoke(app, ["init", "--skip-browser"], input="y\n2\nfake-removed\n")
+    key = fake_value("groq")  # built at run time: no credential-like literal in the source
+    result = runner.invoke(app, ["init", "--skip-browser"], input=f"y\n2\n{key}\n")
     assert result.exit_code == 0, result.output
-    assert "GROQ_API_KEY=fake-removed" in (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "fake-removed" not in result.output
+    assert f"GROQ_API_KEY={key}" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert key not in result.output
     monkeypatch.delenv("GROQ_API_KEY")
 
 

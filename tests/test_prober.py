@@ -18,6 +18,7 @@ from ghost_api.probe.replay import (
     with_overrides,
     with_path_params,
 )
+from tests.fake_secrets import API_KEY, SESSION_ID, TOKEN
 
 HOST = "shop.test"
 EP = Endpoint("GET", HOST, "/api/items")
@@ -35,15 +36,15 @@ def fake_api(request: httpx.Request) -> httpx.Response:
     if url.path == "/api/stuck":  # ignores ?page, always the same records
         return httpx.Response(200, json={"items": [{"id": 1}, {"id": 2}]})
     if url.path == "/api/keyed":  # needs the x-api-key header
-        if request.headers.get("x-api-key") != "fake-removed":
+        if request.headers.get("x-api-key") != API_KEY:
             return httpx.Response(401, json={"error": "no key"})
         return httpx.Response(200, json={"items": [{"id": 1}]})
     if url.path == "/api/session":  # needs the session cookie
-        if "sid=fake-removed" not in request.headers.get("cookie", ""):
+        if f"sid={SESSION_ID}" not in request.headers.get("cookie", ""):
             return httpx.Response(403, json={"error": "login"})
         return httpx.Response(200, json={"me": "ada"})
     if url.path == "/api/qkey":  # needs ?apikey
-        if q.get("apikey") != "fake-removed":
+        if q.get("apikey") != TOKEN:
             return httpx.Response(401, json={"error": "key"})
         return httpx.Response(200, json={"items": [{"id": 1}]})
     if url.path == "/api/timeline":  # cursor pagination; the third page is the last
@@ -128,9 +129,9 @@ def test_robots_and_budget_are_enforced() -> None:
 
 def test_replay_record_is_redacted() -> None:
     replayer, _ = make_replayer()
-    result = replayer.send(raw("/api/keyed", headers={"x-api-key": "fake-removed"}))
+    result = replayer.send(raw("/api/keyed", headers={"x-api-key": API_KEY}))
     assert result.ok and result.captured is not None
-    assert "fake-removed" not in json.dumps(result.captured.req_headers)
+    assert API_KEY not in json.dumps(result.captured.req_headers)
     assert result.captured.resource_type == "probe"
 
 
@@ -156,7 +157,7 @@ def probe(sample: RawRequest, endpoint: Endpoint = EP) -> tuple[Any, list[httpx.
 
 
 def test_page_pagination_is_confirmed_and_public_endpoint_needs_nothing() -> None:
-    report, seen = probe(raw("/api/items?page=1", headers={"cookie": "sid=fake-removed"}))
+    report, seen = probe(raw("/api/items?page=1", headers={"cookie": f"sid={SESSION_ID}"}))
     assert report.replayable
     assert report.pagination == {"style": "page", "param": "page", "location": "query",
                                  "size_param": None, "confirmed": True}  # fmt: skip
@@ -200,22 +201,24 @@ def test_pagination_in_json_body() -> None:
 
 
 def test_required_api_key_header_is_found() -> None:
-    sample = raw("/api/keyed", headers={"x-api-key": "fake-removed", "referer": "https://shop.test/"})
+    sample = raw("/api/keyed", headers={"x-api-key": API_KEY, "referer": "https://shop.test/"})
     report, _ = probe(sample, Endpoint("GET", HOST, "/api/keyed"))
     assert report.required_headers == ["x-api-key"]
     assert report.auth_type == "api-key-header"
-    assert "fake-removed" not in json.dumps([h.__dict__ for h in report.hypotheses])
+    assert API_KEY not in json.dumps([h.__dict__ for h in report.hypotheses])
 
 
 def test_required_cookie_is_found() -> None:
-    sample = raw("/api/session", headers={"cookie": "sid=fake-removed; theme=dark", "x-requested-with": "x"})
+    sample = raw(
+        "/api/session", headers={"cookie": f"sid={SESSION_ID}; theme=dark", "x-requested-with": "x"}
+    )
     report, _ = probe(sample, Endpoint("GET", HOST, "/api/session"))
     assert report.required_headers == ["cookie"]
     assert report.auth_type == "cookie"
 
 
 def test_required_secret_query_param() -> None:
-    report, _ = probe(raw("/api/qkey?apikey=fake-removed&q=x"), Endpoint("GET", HOST, "/api/qkey"))
+    report, _ = probe(raw(f"/api/qkey?apikey={TOKEN}&q=x"), Endpoint("GET", HOST, "/api/qkey"))
     assert report.required_query == ["apikey"]
     assert report.auth_type == "api-key-query"
 

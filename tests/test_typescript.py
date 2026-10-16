@@ -33,6 +33,7 @@ from ghost_api.generator.ts_gen import (
 )
 from ghost_api.verify.runner import run_node_tests
 from ghost_api.verify.verifier import Verifier
+from tests.fake_secrets import API_KEY
 
 NODE = shutil.which("node")
 NPX = shutil.which("npx")
@@ -97,7 +98,7 @@ class Shop(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         if url.path == "/api/items":
-            if q.get("api_key") != "fake-removed":
+            if q.get("api_key") != API_KEY:
                 self._json({"error": "key"}, 401)
                 return
             page = int(q.get("page", "1"))
@@ -163,7 +164,7 @@ def site(base: str) -> tuple[list[Endpoint], list[CapturedRequest], list[RawRequ
         captured(f"{base}/api/search", {"hits": []}, "POST", {"query": "foundation", "page": 0}),
     ]
     raws: list[RawRequest | None] = [
-        RawRequest("GET", f"{base}/api/items?page={p}&api_key=fake-removed", {}) for p in (1, 2)
+        RawRequest("GET", f"{base}/api/items?page={p}&api_key={API_KEY}", {}) for p in (1, 2)
     ] + [
         RawRequest("GET", f"{base}/api/items/11", {"x-client": "web"}),
         RawRequest("POST", f"{base}/api/search", {}, json.dumps({"query": "dune", "page": 0})),
@@ -207,7 +208,7 @@ def test_rendered_typescript_has_no_secrets_and_camel_case_api() -> None:
     )
     assert "async getItems(" in client and "async *iterGetItems(" in client
     assert "async postSearch(" in client and '"x-client": "web"' in client
-    assert REDACTED not in client and '"fake-removed"' not in client  # the value, not the env name
+    assert REDACTED not in client and API_KEY not in client  # the value, not the env name
 
 
 @pytest.mark.skipif(NPX is None, reason="npx is not installed")
@@ -273,7 +274,7 @@ console.log(JSON.stringify({{ first: page.items[0].itemName, pages, item: item.c
         capture_output=True,
         text=True,
         timeout=120,
-        env={**os.environ, cred_env: "fake-removed"},
+        env={**os.environ, cred_env: API_KEY},
     )
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -318,7 +319,7 @@ console.log(JSON.stringify(seen));
 @needs_node
 def test_generated_node_tests_pass_through_the_runner(shop: str, tmp_path: Path) -> None:
     result = write_typescript(spec_for(shop), tmp_path)
-    outcomes = run_node_tests(result.tests_path, {spec_for(shop).credentials[0].env: "fake-removed"})
+    outcomes = run_node_tests(result.tests_path, {spec_for(shop).credentials[0].env: API_KEY})
     assert outcomes, "no tests ran"
     failed = [o for o in outcomes if o.outcome == "failed"]
     assert not failed, failed[0].message

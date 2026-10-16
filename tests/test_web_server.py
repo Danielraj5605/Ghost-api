@@ -13,8 +13,9 @@ from fastapi.testclient import TestClient
 from evals.demo_shop import serve as serve_shop
 from ghost_api.web import server
 from ghost_api.web.server import RunManager, create_app
+from tests.fake_secrets import fake_value
 
-TOKEN = "fake-removed"
+TOKEN = fake_value("dashboard")  # built at run time, not a real token
 AUTH = {"x-ghost-token": TOKEN}
 
 
@@ -49,7 +50,7 @@ def start_run(env: dict[str, Any], url: str) -> int:
 def test_api_needs_the_token(env: dict[str, Any]) -> None:
     c = env["client"]
     assert c.get("/api/state").status_code == 401
-    assert c.get("/api/state", headers={"x-ghost-token": "fake-removed"}).status_code == 401
+    assert c.get("/api/state", headers={"x-ghost-token": fake_value("wrong")}).status_code == 401
     assert c.get("/api/state", headers=AUTH).json()["version"]
     assert c.get(f"/api/state?token={TOKEN}").status_code == 200  # EventSource / <img> form
 

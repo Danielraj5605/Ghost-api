@@ -1,6 +1,7 @@
 import pytest
 
 from ghost_api.analysis import detectors as d
+from tests.fake_secrets import SESSION_ID
 
 
 @pytest.mark.parametrize(
@@ -78,7 +79,7 @@ def test_candidate_headers_skip_browser_boilerplate() -> None:
         "user-agent": "x",
         "accept-language": "en",
         "sec-fetch-mode": "cors",
-        "cookie": "s=1",
+        "cookie": f"s={SESSION_ID}",
         "x-api-key": "k",
         "referer": "https://e.com/",
         "accept": "*/*",

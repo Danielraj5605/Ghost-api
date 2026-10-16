@@ -22,6 +22,7 @@ from ghost_api.memory.store import Store, StoreError
 from ghost_api.net import MultiHostRobotsPolicy, RateLimiter, RobotsPolicy
 from ghost_api.ui import terminal
 from ghost_api.ui.repl import _find_url
+from tests.fake_secrets import fake_value
 from tests.test_orchestrator import FakeBrowser, ScriptedLLM, act, explorer
 
 runner = CliRunner()
@@ -31,7 +32,7 @@ runner = CliRunner()
 
 
 def test_provider_cooldowns_survive_a_new_gateway(tmp_path: Path) -> None:
-    provider = Provider("alpha", "https://alpha.test/v1", "m1", api_key="key")
+    provider = Provider("alpha", "https://alpha.test/v1", "m1", api_key=fake_value("alpha"))
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

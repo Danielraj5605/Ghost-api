@@ -12,7 +12,7 @@ from ghost_api import exitcodes
 from ghost_api.capture.har import read_har
 from ghost_api.cli import app
 from ghost_api.memory.store import Store
-from tests.fake_secrets import bearer
+from tests.fake_secrets import SESSION_ID, bearer
 
 runner = CliRunner()
 EMAIL = "member.one" + "@" + "example.org"
@@ -40,7 +40,7 @@ def har(base: str, tmp_path: Path, fetch: bool = True) -> Path:
     def get(path: str) -> str:
         return httpx.get(base + path).text if fetch else json.dumps({"items": [{"id": 1}]})
 
-    secret = {"Authorization": bearer(), "Cookie": "session=fake-removed"}
+    secret = {"Authorization": bearer(), "Cookie": f"session={SESSION_ID}"}
     entries = [
         entry(base + "/", "<html></html>", kind="document", mime="text/html"),
         entry(base + "/app.js", "console.log(1)", kind="script", mime="text/javascript"),
@@ -63,7 +63,7 @@ def test_har_entries_are_filtered_like_live_traffic(tmp_path: Path) -> None:
                     "/api/members"]  # fmt: skip
     assert recording.dropped["resource:script"] == 1 and recording.dropped["redirect"] == 1
     stored = json.dumps([c.__dict__ for c, _ in recording.captured], default=str)
-    assert bearer().split()[1] not in stored and "fake-removed" not in stored and EMAIL not in stored
+    assert bearer().split()[1] not in stored and SESSION_ID not in stored and EMAIL not in stored
     raw = recording.captured[0][1]
     assert raw.headers["authorization"] == bearer()  # kept in memory only, for replays
 
@@ -79,7 +79,7 @@ def test_import_offline_maps_the_api_and_sends_nothing(tmp_path: Path) -> None:
     assert data["client"] is not None
     with Store(db) as store:
         text = json.dumps([r.__dict__ for r in store.requests_for_domain("shop.test")])
-    assert EMAIL not in text and "fake-removed" not in text
+    assert EMAIL not in text and SESSION_ID not in text
 
 
 def test_import_tests_endpoints_against_the_site(tmp_path: Path) -> None:
