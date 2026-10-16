@@ -32,11 +32,16 @@ jobs:
       - name: Software bill of materials (CycloneDX)
         run: |
           python -m pip install cyclonedx-bom dist/*.whl
-          cyclonedx-py environment --output-format JSON -o dist/ghost-api-cli.sbom.cdx.json
+          mkdir -p sbom  # not in dist/: PyPI only accepts distributions there
+          cyclonedx-py environment --output-format JSON -o sbom/ghost-api-cli.sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
 
   publish:
     needs: build
@@ -72,12 +77,16 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
       - name: Create the GitHub release with the changelog section
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '$0 ~ "^## \[" v "\]" {on=1; next} /^## \[/ {on=0} on' \
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 {on=1; next} /^## \[/ {on=0} on' \
             CHANGELOG.md > notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* --title "Ghost API $version" \
+          gh release create "$GITHUB_REF_NAME" dist/* sbom/* --title "Ghost API $version" \
             --notes-file notes.md
