@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, Download, FileCode2, History, Lightbulb, Play, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, BookOpen, Download, FileCode2, History, Lightbulb, Play, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -128,7 +128,7 @@ function CodeTab({ site, languages }: { site: SiteDetail; languages: string[] })
             ))}
         </div>
         <Button onClick={() => regen.mutate()} disabled={regen.isPending || !site.endpoints.length}>
-          {shown.length ? <RefreshCw className={cx("size-4", regen.isPending && "animate-spin")} /> : <Sparkles className="size-4" />}
+          {shown.length ? <RefreshCw className={cx("size-4", regen.isPending && "animate-spin")} /> : <FileCode2 className="size-4" aria-hidden />}
           {regen.isPending ? "Generating…" : shown.length ? "Regenerate" : `Generate ${lang === "python" ? "Python" : "TypeScript"} client`}
         </Button>
         <a href={api.zipUrl(site.domain)} download className="ml-auto">

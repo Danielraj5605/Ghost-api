@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, Bot, ChevronDown, Globe, Sparkles, Target } from "lucide-react";
+import { ArrowRight, Bot, ChevronDown, Globe, Search, Target } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, siteId } from "../api";
@@ -147,7 +147,7 @@ function NewRunForm({ hasLlm, running }: { hasLlm: boolean; running: number | nu
         </p>
       ) : (
         <Button type="submit" variant="primary" disabled={start.isPending} className="w-full py-2.5 text-base">
-          <Sparkles className="size-4" />
+          <Search className="size-4" aria-hidden />
           {start.isPending ? "Starting…" : "Find the API"}
           <ArrowRight className="size-4" />
         </Button>
@@ -196,10 +196,10 @@ export function Home() {
 
   return (
     <div className="space-y-12">
-      <section className="ghost-glow -mx-4 -mt-6 px-4 pt-12 pb-4 text-center sm:pt-16">
+      <section className="px-4 pt-6 pb-4 text-center sm:pt-10">
         <GhostMark className="mx-auto size-14" />
         <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-          Turn any website into an <span className="text-accent">API client</span>
+          Turn a website's hidden API into a <span className="text-accent">typed client</span>
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-muted">
           An AI agent browses the site, watches the hidden API calls it makes, tests them, and writes a typed,

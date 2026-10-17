@@ -181,7 +181,7 @@ export function ReportApp({ data }: { data: ReportData | null }) {
       </header>
 
       <main className="mx-auto w-full max-w-[1440px] flex-1 space-y-6 px-4 py-6">
-        <section className="ghost-glow -mx-4 -mt-6 space-y-4 px-4 pt-8">
+        <section className="space-y-4 pt-2">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-bold break-all sm:text-3xl">{data.domain}</h1>
@@ -197,7 +197,7 @@ export function ReportApp({ data }: { data: ReportData | null }) {
             <Stat label="Verified by live tests" value={verified} />
             <Stat label="Requests captured" value={run.requests} />
             <Stat label="LLM calls" value={run.llm_calls} />
-            <Stat label="Time" value={duration === null ? "—" : `${duration} s`} />
+            <Stat label="Time" value={duration === null ? "n/a" : `${duration} s`} />
           </div>
         </section>
 

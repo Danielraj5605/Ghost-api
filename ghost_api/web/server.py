@@ -681,7 +681,9 @@ def serve(
     if run_watches:
         threading.Thread(target=_watch_loop, args=(db, console), daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
-    console.print(f"[bold #a78bfa]◆ Ghost API dashboard[/]  {url}")
+    from ghost_api.ui.terminal import ACCENT
+
+    console.print(f"[bold {ACCENT}]◆ Ghost API dashboard[/]  {url}")
     console.print("[dim]Local only. Press Ctrl+C to stop.[/]")
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()

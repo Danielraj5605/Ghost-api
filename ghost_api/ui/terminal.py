@@ -42,7 +42,7 @@ from ghost_api.events import (
 )
 from ghost_api.ui import keys
 
-ACCENT = "#a78bfa"  # ghost violet, shared with the web dashboard
+ACCENT = "#06b6d4"  # ghost cyan, shared with the web dashboard
 METHOD_STYLE = {
     "GET": "bold #22c55e",
     "POST": "bold #3b82f6",

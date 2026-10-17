@@ -8,7 +8,7 @@ Give Ghost API a website and a plain-English goal. It opens the site in a real b
 
 <sub>A real run on quotes.toscrape.com from the web dashboard (`ghost-api ui`): the agent loads the page, the API call is tested, a client is generated and verified, and "Try it" calls the endpoint. 2 free LLM calls, about 20 seconds.</sub>
 
-> **Status:** Version 0.1.0. All 11 build stages are done and evaluated on four sites (see [Evaluation](#evaluation)): every goal endpoint found, nothing invented, every generated client test passing, for 1–10 free LLM calls per site. It has a live terminal UI, a local web dashboard and a shareable one-file HTML report. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for how it was built.
+> **Status:** Version 0.2.0. All 11 build stages are done and evaluated on four sites (see [Evaluation](#evaluation)): every goal endpoint found, nothing invented, every generated client test passing, for 1–10 free LLM calls per site. It has a live terminal UI, a local web dashboard and a shareable one-file HTML report. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for how it was built.
 
 ---
 

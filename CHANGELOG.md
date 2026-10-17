@@ -6,6 +6,13 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 
 ## [Unreleased]
 
+### Changed
+- One flat brand colour (cyan) across the docs site, dashboard, report and terminal; the
+  purple gradient logo and header glow are gone. The dashboard heading no longer says "any
+  website", and the sparkles icons are replaced by plain ones.
+- Docs site: favicon (SVG, ICO, Apple touch icon), system fonts (no request to Google Fonts),
+  no "Made with" footer credit, and footer links to the new privacy policy and terms pages.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

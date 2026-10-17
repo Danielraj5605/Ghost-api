@@ -1,25 +1,38 @@
 site_name: Ghost API
-site_description: Turn any website's hidden API into a typed, tested client.
+site_description: Find a website's hidden API and get a typed, tested client for it.
 repo_url: https://github.com/Danielraj5605/Ghost-api
 edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Danielraj
 strict: true
 
 theme:
   name: material
+  custom_dir: overrides
+  font: false  # system fonts: no request to Google Fonts (see privacy.md)
+  favicon: assets/favicon.svg
+  logo: assets/logo.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: deep purple
+      primary: custom
+      accent: custom
       toggle: { icon: material/weather-night, name: Dark mode }
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: deep purple
+      primary: custom
+      accent: custom
       toggle: { icon: material/weather-sunny, name: Light mode }
   features:
     - navigation.sections
     - navigation.top
     - content.code.copy
     - search.highlight
+
+extra:
+  generator: false  # no "Made with" credit in the footer
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
   - admonition
@@ -45,3 +58,5 @@ nav:
   - Command reference: cli.md
   - Security and data: security.md
   - Changelog: changelog.md
+  - Privacy policy: privacy.md
+  - Terms and conditions: terms.md

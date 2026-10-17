@@ -97,7 +97,7 @@ export function Run() {
         <Stat
           icon={<Clock className="size-4" />}
           label="Direct calls"
-          value={state.probes ? state.probes.directCalls : "—"}
+          value={state.probes ? state.probes.directCalls : "n/a"}
         />
       </div>
       {usage && usage.problems.length > 0 && (

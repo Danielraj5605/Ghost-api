@@ -1,0 +1,40 @@
+/* Brand colours: the same cyan as the dashboard and the terminal. Flat colours only. */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #155e75;
+  --md-primary-fg-color--light: #0e7490;
+  --md-primary-fg-color--dark: #164e63;
+  --md-accent-fg-color: #0e7490;
+  --md-typeset-a-color: #0e7490;
+  --md-code-hl-keyword-color: #0e7490;
+  --md-code-hl-function-color: #1d4ed8;
+  --md-code-hl-constant-color: #b45309;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #164e63;
+  --md-primary-fg-color--light: #155e75;
+  --md-primary-fg-color--dark: #083344;
+  --md-accent-fg-color: #67e8f9;
+  --md-typeset-a-color: #22d3ee;
+  --md-code-hl-keyword-color: #22d3ee;
+  --md-code-hl-function-color: #93c5fd;
+  --md-code-hl-constant-color: #fbbf24;
+}
+
+.gh-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  margin-top: 0.4rem;
+}
+
+.gh-legal a {
+  color: var(--md-footer-fg-color--light);
+}
+
+.gh-legal a:hover,
+.gh-legal a:focus-visible {
+  color: var(--md-footer-fg-color);
+  text-decoration: underline;
+}

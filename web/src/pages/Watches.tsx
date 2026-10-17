@@ -11,7 +11,7 @@ const KIND: Record<WatchChange["kind"], { icon: typeof Plus; className: string; 
   gone: { icon: Minus, className: "text-bad", label: "Gone" },
 };
 
-const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+const show = (v: unknown) => (v === null || v === undefined || v === "" ? "n/a" : String(v));
 
 export function ChangeLine({ change }: { change: WatchChange }) {
   const { icon: Icon, className, label } = KIND[change.kind];

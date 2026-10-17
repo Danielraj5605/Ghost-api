@@ -185,7 +185,7 @@ export function EndpointDetailPanel({
       <dl className="grid grid-cols-2 gap-3 rounded-xl border border-line p-3 sm:grid-cols-4">
         <Fact label="Host">{e.host}</Fact>
         <Fact label="Seen">{plural(e.samples, "time")}</Fact>
-        <Fact label="Statuses">{e.statuses.join(", ") || "—"}</Fact>
+        <Fact label="Statuses">{e.statuses.join(", ") || "none"}</Fact>
         <Fact label="Auth">{e.auth_type ?? "none"}</Fact>
         {e.pagination && (
           <Fact label="Pagination">
