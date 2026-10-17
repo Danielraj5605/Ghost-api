@@ -103,6 +103,8 @@ def test_ctrl_c_during_a_run_stops_only_that_run(console: Console) -> None:
         console.expect("Stopping after the current step")
         console.expect("interrupted", 120)
         console.expect("Next:", 60)
+        console.expect("Ctrl+C twice to exit")  # the prompt is drawn: type only now
+        time.sleep(0.5)
         console.type("/exit\r")
         console.expect("Goodbye")
     finally:
