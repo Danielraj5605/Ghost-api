@@ -16,10 +16,17 @@
   --md-primary-fg-color--light: #155e75;
   --md-primary-fg-color--dark: #083344;
   --md-accent-fg-color: #67e8f9;
+  --md-accent-bg-color: #083344; /* text on accent (button hover) */
   --md-typeset-a-color: #22d3ee;
   --md-code-hl-keyword-color: #22d3ee;
   --md-code-hl-function-color: #93c5fd;
   --md-code-hl-constant-color: #fbbf24;
+}
+
+/* Outlined buttons use the link colour, which is readable in both schemes. */
+.md-typeset .md-button:not(.md-button--primary) {
+  border-color: var(--md-typeset-a-color);
+  color: var(--md-typeset-a-color);
 }
 
 .gh-legal {
@@ -37,4 +44,103 @@
 .gh-legal a:focus-visible {
   color: var(--md-footer-fg-color);
   text-decoration: underline;
+}
+
+/* Typography for every page: solid headings instead of Material's light grey ones.
+   Material sets the root font size to 125%, so 1rem is 20px here. */
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+}
+
+/* Home page. Plain sections, no effects. */
+.gh-home {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.gh-hero {
+  padding: 1.2rem 0 0.4rem;
+}
+
+.md-typeset .gh-hero h1 {
+  font-size: clamp(1.6rem, 4vw, 2.3rem);
+  line-height: 1.15;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.md-typeset .gh-hero > p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: 38rem;
+}
+
+.md-typeset .gh-eyebrow {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.gh-section {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  margin-top: 2.4rem;
+  padding-top: 0.4rem;
+}
+
+.gh-steps {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: 1fr;
+  margin: 1rem 0;
+}
+
+.gh-step {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  min-width: 0; /* lets code blocks scroll instead of widening the grid */
+  padding: 0.2rem 0.8rem;
+}
+
+.md-typeset .gh-step__label {
+  color: var(--md-typeset-a-color);
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 650;
+  margin-top: 0.6rem;
+}
+
+.gh-facts {
+  display: grid;
+  gap: 0.8rem 1.6rem;
+  grid-template-columns: 1fr;
+  margin: 1rem 0;
+}
+
+.md-typeset .gh-facts p {
+  margin: 0.2rem 0;
+}
+
+@media screen and (min-width: 45em) {
+  .gh-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media screen and (min-width: 60em) {
+  .gh-steps {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }

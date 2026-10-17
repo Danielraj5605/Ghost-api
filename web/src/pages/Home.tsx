@@ -3,8 +3,7 @@ import { ArrowRight, Bot, ChevronDown, Globe, Search, Target } from "lucide-reac
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, siteId } from "../api";
-import { GhostMark } from "../components/Logo";
-import { Button, Card, cx, EmptyState, ErrorBox, MethodBadge, Pill, plural, Skeleton, timeAgo } from "../components/ui";
+import { Button, Card, cx, EmptyState, ErrorBox, MethodBadge, Pill, plural, SectionTitle, Skeleton, timeAgo } from "../components/ui";
 import type { SiteSummary, StartRunRequest } from "../types";
 
 const EXAMPLES = [
@@ -14,8 +13,15 @@ const EXAMPLES = [
 ];
 
 const STATUS_TONE: Record<string, string> = {
+  "goal-covered": "bg-ok/15 text-ok",
   failed: "bg-bad/15 text-bad",
   interrupted: "bg-warn/15 text-warn",
+  "no-progress": "bg-warn/15 text-warn",
+  "max-steps": "bg-warn/15 text-warn",
+  "time-limit": "bg-warn/15 text-warn",
+  "llm-budget": "bg-warn/15 text-warn",
+  "bot-protection": "bg-warn/15 text-warn",
+  "llm-unavailable": "bg-bad/15 text-bad",
   running: "bg-accent-soft text-accent",
 };
 
@@ -52,7 +58,7 @@ function NewRunForm({ hasLlm, running }: { hasLlm: boolean; running: number | nu
     "flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5 transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
 
   return (
-    <form onSubmit={submit} className="mx-auto w-full max-w-2xl space-y-3 text-left">
+    <form onSubmit={submit} className="space-y-3 p-4">
       <label className={field}>
         <Globe className="size-5 shrink-0 text-muted" aria-hidden />
         <span className="sr-only">Website URL</span>
@@ -152,39 +158,41 @@ function NewRunForm({ hasLlm, running }: { hasLlm: boolean; running: number | nu
           <ArrowRight className="size-4" />
         </Button>
       )}
-      <p className="text-center text-xs text-muted">
+      <p className="text-xs text-muted">
         Ghost API respects robots.txt and stops at logins or bot checks. Only scan sites you are allowed to.
       </p>
     </form>
   );
 }
 
-function SiteCard({ site }: { site: SiteSummary }) {
-  const tone = STATUS_TONE[site.latest.status] ?? "bg-ok/15 text-ok";
+function SiteRow({ site }: { site: SiteSummary }) {
+  const tone = STATUS_TONE[site.latest.status] ?? "bg-surface-2 text-muted";
   return (
     <Link
       to={`/sites/${siteId(site.domain)}`}
-      className="group block rounded-xl border border-line bg-surface p-4 transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5"
+      className="group flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-center sm:gap-4"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="truncate font-semibold group-hover:text-accent">{site.domain}</h3>
-          <p className="mt-0.5 truncate text-xs text-muted" title={site.latest.goal}>
-            {site.latest.goal}
-          </p>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <h3 className="truncate font-medium group-hover:text-accent">{site.domain}</h3>
+          <Pill className={tone}>{site.latest.status}</Pill>
         </div>
-        <Pill className={tone}>{site.latest.status}</Pill>
+        <p className="mt-0.5 truncate text-xs text-muted" title={site.latest.goal}>
+          {site.latest.goal}
+        </p>
       </div>
-      <div className="mt-3 flex flex-wrap gap-1">
-        {site.methods.map((m) => (
-          <MethodBadge key={m} method={m} />
-        ))}
-      </div>
-      <div className="mt-3 flex items-center gap-3 text-xs text-muted">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted sm:justify-end">
+        {site.methods.length > 0 && (
+          <span className="flex gap-1">
+            {site.methods.map((m) => (
+              <MethodBadge key={m} method={m} />
+            ))}
+          </span>
+        )}
         <span className="font-medium text-fg">{plural(site.endpoints, "endpoint")}</span>
         {site.counts.verified > 0 && <span className="text-ok">{site.counts.verified} verified</span>}
         <span>{plural(site.runs, "run")}</span>
-        <span className="ml-auto">{timeAgo(site.latest.finished_at ?? site.latest.started_at)}</span>
+        <span className="tabular-nums sm:w-14 sm:text-right">{timeAgo(site.latest.finished_at ?? site.latest.started_at)}</span>
       </div>
     </Link>
   );
@@ -193,51 +201,53 @@ function SiteCard({ site }: { site: SiteSummary }) {
 export function Home() {
   const state = useQuery({ queryKey: ["state"], queryFn: api.state });
   const sites = useQuery({ queryKey: ["sites"], queryFn: api.sites });
+  const count = sites.data?.length ?? 0;
 
   return (
-    <div className="space-y-12">
-      <section className="px-4 pt-6 pb-4 text-center sm:pt-10">
-        <GhostMark className="mx-auto size-14" />
-        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-          Turn a website's hidden API into a <span className="text-accent">typed client</span>
-        </h1>
-        <p className="mx-auto mt-3 max-w-xl text-muted">
-          An AI agent browses the site, watches the hidden API calls it makes, tests them, and writes a typed,
-          tested client you can use from code.
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-xl font-semibold tracking-tight">Sites</h1>
+        <p className="mt-1 text-sm text-muted">
+          Explore a site to find its hidden API, or open one you have already explored.
         </p>
-        <div className="mt-8">
-          <NewRunForm hasLlm={state.data?.has_llm ?? true} running={state.data?.running ?? null} />
-        </div>
-      </section>
+      </header>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Your sites</h2>
-          {sites.data && sites.data.length > 0 && <span className="text-sm text-muted">{plural(sites.data.length, "site")}</span>}
-        </div>
-        {sites.isPending && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-36" />
-            ))}
-          </div>
-        )}
-        {sites.error && <ErrorBox error={sites.error} />}
-        {sites.data?.length === 0 && (
-          <Card>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <Card>
+          <SectionTitle>New run</SectionTitle>
+          <NewRunForm hasLlm={state.data?.has_llm ?? true} running={state.data?.running ?? null} />
+        </Card>
+
+        <Card>
+          <SectionTitle right={count > 0 ? <span className="text-xs text-muted">{plural(count, "site")}</span> : undefined}>
+            Your sites
+          </SectionTitle>
+          {sites.isPending && (
+            <div className="space-y-2 p-4">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="h-14" />
+              ))}
+            </div>
+          )}
+          {sites.error && (
+            <div className="p-4">
+              <ErrorBox error={sites.error} />
+            </div>
+          )}
+          {sites.data?.length === 0 && (
             <EmptyState icon={<Bot className="size-8" />} title="No sites yet">
-              Start a run above. When it finishes, the site's endpoints, client code and report show up here.
+              Start a run with the form. When it finishes, the site's endpoints, client code and report show up here.
             </EmptyState>
-          </Card>
-        )}
-        {sites.data && sites.data.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {sites.data.map((s) => (
-              <SiteCard key={s.domain} site={s} />
-            ))}
-          </div>
-        )}
-      </section>
+          )}
+          {sites.data && sites.data.length > 0 && (
+            <div className="divide-y divide-line">
+              {sites.data.map((s) => (
+                <SiteRow key={s.domain} site={s} />
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

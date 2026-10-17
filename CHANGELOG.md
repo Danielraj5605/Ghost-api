@@ -12,6 +12,11 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
   website", and the sparkles icons are replaced by plain ones.
 - Docs site: favicon (SVG, ICO, Apple touch icon), system fonts (no request to Google Fonts),
   no "Made with" footer credit, and footer links to the new privacy policy and terms pages.
+- Docs site: a new home page built from one real run (the recorded request, the checks that
+  proved it, the generated models), the measured comparison with an AI assistant alone, and
+  stronger headings on every page.
+- Dashboard: the home page puts the run form and your sites side by side, sites as a compact
+  list; run statuses use honest colours (limits and "no progress" in amber, not green).
 
 ## [0.2.0] - 2026-10-17
 

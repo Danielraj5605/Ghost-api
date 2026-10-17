@@ -53,7 +53,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6">{children}</main>
       <footer className="border-t border-line py-4 text-center text-xs text-muted">
         Ghost API {state.data?.version ?? ""} · runs locally on your computer · nothing is sent anywhere
-        except the sites you scan and your LLM provider
+        except the sites you scan, your LLM provider and notifications you set up
       </footer>
     </div>
   );
