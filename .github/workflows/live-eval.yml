@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Install
@@ -33,7 +33,7 @@ jobs:
           if [ -z "$GEMINI_API_KEY$GROQ_API_KEY$OPENROUTER_API_KEY" ]; then flag="--no-agent"; fi
           python -m evals.run_eval --suite all $flag --results-dir eval-results || true
           cat eval-results/results.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: live-eval-${{ github.run_id }}
           path: eval-results/
