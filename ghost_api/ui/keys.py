@@ -36,6 +36,8 @@ class _Watcher:
         self.set_mode = set_mode  # True: normal console mode (typing works)
 
     def run(self) -> None:
+        if sys.platform != "win32":
+            return
         import msvcrt
 
         while not self.stop.is_set():
