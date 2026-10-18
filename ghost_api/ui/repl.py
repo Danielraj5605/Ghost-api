@@ -27,7 +27,7 @@ from rich.text import Text
 
 from ghost_api import __version__
 from ghost_api.site import site_key
-from ghost_api.ui.terminal import ACCENT, file_link, file_url
+from ghost_api.ui.terminal import ACCENT, file_link, file_url, ghost_avatar
 
 EXIT_WINDOW_S = 2.0  # Ctrl+C twice within this many seconds ends the session
 URL_RE = re.compile(
@@ -292,10 +292,8 @@ def _starts_with_site(args: list[str]) -> bool:
 
 
 def welcome_panel(cwd: Path, has_llm: bool) -> Panel:
-    body = Group(
-        Text.assemble(
-            ("◆ ", ACCENT), ("Welcome to Ghost API", "bold"), (f"  v{__version__}", "dim")
-        ),
+    text = Group(
+        Text.assemble(("Welcome to Ghost API", "bold"), (f"  v{__version__}", "dim")),
         Text(""),
         Text("  Paste a website and say what data you want.", style="dim"),
         Text("  /help for commands · Ctrl+C twice to exit", style="dim"),
@@ -305,6 +303,8 @@ def welcome_panel(cwd: Path, has_llm: bool) -> Panel:
         else Text("  AI agent: no LLM key in .env (pages are only loaded and scrolled)",
                   style="yellow"),  # fmt: skip
     )  # fmt: skip
+    body = Table.grid(padding=(0, 2))
+    body.add_row(ghost_avatar(), text)
     return Panel(body, border_style=ACCENT, padding=(0, 1), expand=False)
 
 

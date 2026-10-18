@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 ## [Unreleased]
 
 ### Changed
+- The interactive session's welcome panel shows the ghost from the favicon as the CLI's avatar
+  (half-block characters in the brand colour).
 - One flat brand colour (cyan) across the docs site, dashboard, report and terminal; the
   purple gradient logo and header glow are gone. The dashboard heading no longer says "any
   website", and the sparkles icons are replaced by plain ones.

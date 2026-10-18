@@ -43,6 +43,37 @@ from ghost_api.events import (
 from ghost_api.ui import keys
 
 ACCENT = "#06b6d4"  # ghost cyan, shared with the web dashboard
+
+# The favicon's ghost (docs/assets/favicon.svg) as 12x12 pixels: a dome, two eyes, a
+# scalloped hem. Two pixel rows share one line of half-blocks, so it prints 12 x 6 and
+# looks square in a terminal. The eyes are holes, so they take the terminal's background.
+GHOST_PIXELS = (
+    "....####....",
+    "..########..",
+    ".##########.",
+    "############",
+    "###..##..###",
+    "###..##..###",
+    "############",
+    "############",
+    "############",
+    "############",
+    "############",
+    "##.##..##.##",
+)
+_HALF_BLOCKS = {(False, False): " ", (True, False): "▀", (False, True): "▄", (True, True): "█"}
+
+
+def ghost_avatar() -> Text:
+    """Ghost API's avatar, drawn with half-block characters in the accent colour."""
+    lines = []
+    for top, bottom in zip(GHOST_PIXELS[::2], GHOST_PIXELS[1::2], strict=True):
+        lines.append(
+            "".join(_HALF_BLOCKS[(t == "#", b == "#")] for t, b in zip(top, bottom, strict=True))
+        )
+    return Text("\n".join(lines), style=ACCENT, no_wrap=True)
+
+
 METHOD_STYLE = {
     "GET": "bold #22c55e",
     "POST": "bold #3b82f6",
