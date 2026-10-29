@@ -6,21 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 
 ## [Unreleased]
 
-### Changed
-- The interactive session's welcome panel shows the ghost from the favicon as the CLI's avatar
-  (half-block characters in the brand colour).
-- One flat brand colour (cyan) across the docs site, dashboard, report and terminal; the
-  purple gradient logo and header glow are gone. The dashboard heading no longer says "any
-  website", and the sparkles icons are replaced by plain ones.
-- Docs site: favicon (SVG, ICO, Apple touch icon), system fonts (no request to Google Fonts),
-  no "Made with" footer credit, and footer links to the new privacy policy and terms pages.
-- Docs site: a new home page built from one real run (the recorded request, the checks that
-  proved it, the generated models), the measured comparison with an AI assistant alone, and
-  stronger headings on every page.
-- Dashboard: the home page puts the run form and your sites side by side, sites as a compact
-  list; run statuses use honest colours (limits and "no progress" in amber, not green).
-
-## [0.2.0] - 2026-10-17
+## [0.2.0] - 2026-10-29
 
 ### Added
 - docs/gallery.md: real runs on public practice sites, including one with no JSON API.
@@ -100,6 +86,20 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 - TypeScript clients are documented for Node 18+; they no longer try to set User-Agent in
   browsers.
 - Endpoints found by earlier runs are kept until a refresh finds them gone.
+- The interactive session's welcome panel shows the ghost from the favicon as the CLI's avatar
+  (half-block characters in the brand colour).
+- One flat brand colour (royal blue) across the docs site, dashboard, report, favicon and
+  terminal; the purple gradient logo and header glow are gone. The dashboard heading no
+  longer says "any website", and the sparkles icons are replaced by plain ones.
+- Docs site: favicon (SVG, ICO, Apple touch icon), system fonts (no request to Google Fonts),
+  no "Made with" footer credit, and footer links to the new privacy policy and terms pages.
+- Docs site: a new home page built from one real run (the recorded request, the checks that
+  proved it, the generated models), the measured comparison with an AI assistant alone, and
+  stronger headings on every page.
+- Dashboard: the home page puts the run form and your sites side by side, sites as a compact
+  list; run statuses use honest colours (limits and "no progress" in amber, not green).
+- Dashboard: a sidebar for Sites, Watches and Settings on wide screens, and summary tiles on
+  the home page (sites, endpoints found, verified endpoints, runs).
 
 ### Fixed
 - Cursor paging parameters are typed as text (cursors are opaque, even when numeric).

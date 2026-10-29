@@ -42,7 +42,7 @@ from ghost_api.events import (
 )
 from ghost_api.ui import keys
 
-ACCENT = "#06b6d4"  # ghost cyan, shared with the web dashboard
+ACCENT = "#4f7cff"  # the brand blue, a shade lighter so it reads on dark terminals
 
 # The favicon's ghost (docs/assets/favicon.svg) as 12x12 pixels: a dome, two eyes, a
 # scalloped hem. Two pixel rows share one line of half-blocks, so it prints 12 x 6 and
@@ -293,7 +293,7 @@ class TerminalRenderer:
         self.requests += 1
         if self.plain:
             tag = "third-party " if e.third_party else ""
-            self._print(f"      [dim cyan]{tag}{e.method} {e.status} {_short(e.url, 70)}[/]")
+            self._print(f"      [dim {ACCENT}]{tag}{e.method} {e.status} {_short(e.url, 70)}[/]")
 
     def _on_step(self, e: AgentStep) -> None:
         PROGRESS["step"] = e.step
@@ -366,7 +366,7 @@ class TerminalRenderer:
             for f in e.failures:
                 self._print(f"    [red]failed[/] {f['name']}  [dim]{f['message'][:110]}[/]")
             for r in e.repairs:
-                self._print(f"    [cyan]repair[/] {r['method']} ({r['kind']}): {r['action']}")
+                self._print(f"    [{ACCENT}]repair[/] {r['method']} ({r['kind']}): {r['action']}")
             return
         line = Text.assemble(("  ⎿ ", "dim"), (f"Round {e.number}  ", "bold"))
         for i, (t, s) in enumerate(shown):
@@ -379,7 +379,7 @@ class TerminalRenderer:
         for r in e.repairs:
             self._print(
                 Text.assemble(
-                    ("     ↻ ", "cyan"),
+                    ("     ↻ ", ACCENT),
                     (f"{r['method']} ", "bold"),
                     (f"({r['kind']}) ", "dim"),
                     r["action"],

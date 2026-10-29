@@ -1,25 +1,25 @@
-/* Brand colours: the same cyan as the dashboard and the terminal. Flat colours only. */
+/* Brand colours: the same royal blue as the dashboard and the terminal. Flat colours only. */
 :root,
 [data-md-color-scheme="default"] {
-  --md-primary-fg-color: #155e75;
-  --md-primary-fg-color--light: #0e7490;
-  --md-primary-fg-color--dark: #164e63;
-  --md-accent-fg-color: #0e7490;
-  --md-typeset-a-color: #0e7490;
-  --md-code-hl-keyword-color: #0e7490;
-  --md-code-hl-function-color: #1d4ed8;
+  --md-primary-fg-color: #2f55d4;
+  --md-primary-fg-color--light: #4a6ee0;
+  --md-primary-fg-color--dark: #2443b0;
+  --md-accent-fg-color: #2f55d4;
+  --md-typeset-a-color: #2f55d4;
+  --md-code-hl-keyword-color: #2f55d4;
+  --md-code-hl-function-color: #0f766e;
   --md-code-hl-constant-color: #b45309;
 }
 
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #164e63;
-  --md-primary-fg-color--light: #155e75;
-  --md-primary-fg-color--dark: #083344;
-  --md-accent-fg-color: #67e8f9;
-  --md-accent-bg-color: #083344; /* text on accent (button hover) */
-  --md-typeset-a-color: #22d3ee;
-  --md-code-hl-keyword-color: #22d3ee;
-  --md-code-hl-function-color: #93c5fd;
+  --md-primary-fg-color: #1c2b66;
+  --md-primary-fg-color--light: #25315f;
+  --md-primary-fg-color--dark: #111933;
+  --md-accent-fg-color: #86a2ff;
+  --md-accent-bg-color: #0a0f20; /* text on accent (button hover) */
+  --md-typeset-a-color: #86a2ff;
+  --md-code-hl-keyword-color: #86a2ff;
+  --md-code-hl-function-color: #5eead4;
   --md-code-hl-constant-color: #fbbf24;
 }
 
