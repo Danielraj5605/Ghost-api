@@ -4,7 +4,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Semantic color tokens: components use bg-surface, text-muted, border-line... and the
-   values switch with the theme. The accent cyan matches the terminal UI. */
+   values switch with the theme. The accent is royal blue. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -23,33 +23,35 @@
 }
 
 :root {
-  --bg: #f6f6fb;
+  --bg: #eef2fb;
   --surface: #ffffff;
-  --surface-2: #f0f0f7;
-  --line: #e2e2ee;
-  --fg: #16161f;
-  --muted: #62627a;
-  --accent: #0e7490;
-  --accent-soft: #cffafe;
+  --surface-2: #e6ecfa;
+  --line: #d9e1f4;
+  --fg: #0e1530;
+  --muted: #4f5b7c;
+  --accent: #2f55d4;
+  --accent-soft: #dce5ff;
   --ok: #15803d;
   --warn: #b45309;
   --bad: #dc2626;
   --info: #2563eb;
+  --shadow-card: 0 1px 2px rgb(20 36 90 / 0.05), 0 6px 20px -8px rgb(20 36 90 / 0.10);
 }
 
 .dark {
-  --bg: #0a0a12;
-  --surface: #12121d;
-  --surface-2: #191927;
-  --line: #262638;
-  --fg: #ececf4;
-  --muted: #9494ae;
-  --accent: #22d3ee;
-  --accent-soft: #0b2f36;
+  --bg: #0a0f20;
+  --surface: #111933;
+  --surface-2: #19234a;
+  --line: #25315f;
+  --fg: #e9edfb;
+  --muted: #9aa6cc;
+  --accent: #86a2ff;
+  --accent-soft: #1c2b66;
   --ok: #4ade80;
   --warn: #fbbf24;
   --bad: #f87171;
   --info: #60a5fa;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
 }
 
 html,

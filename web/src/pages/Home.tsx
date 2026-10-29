@@ -3,7 +3,7 @@ import { ArrowRight, Bot, ChevronDown, Globe, Search, Target } from "lucide-reac
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, siteId } from "../api";
-import { Button, Card, cx, EmptyState, ErrorBox, MethodBadge, Pill, plural, SectionTitle, Skeleton, timeAgo } from "../components/ui";
+import { Button, Card, cx, EmptyState, ErrorBox, MethodBadge, Pill, plural, SectionTitle, Skeleton, StatTile, timeAgo } from "../components/ui";
 import type { SiteSummary, StartRunRequest } from "../types";
 
 const EXAMPLES = [
@@ -55,7 +55,7 @@ function NewRunForm({ hasLlm, running }: { hasLlm: boolean; running: number | nu
   };
 
   const field =
-    "flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5 transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
+    "flex items-center gap-2.5 rounded-xl border border-line bg-bg px-3 py-2.5 transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
 
   return (
     <form onSubmit={submit} className="space-y-3 p-4">
@@ -202,15 +202,27 @@ export function Home() {
   const state = useQuery({ queryKey: ["state"], queryFn: api.state });
   const sites = useQuery({ queryKey: ["sites"], queryFn: api.sites });
   const count = sites.data?.length ?? 0;
+  const endpoints = sites.data?.reduce((n, s) => n + s.endpoints, 0) ?? 0;
+  const verified = sites.data?.reduce((n, s) => n + s.counts.verified, 0) ?? 0;
+  const runs = sites.data?.reduce((n, s) => n + s.runs, 0) ?? 0;
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-xl font-semibold tracking-tight">Sites</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Sites</h1>
         <p className="mt-1 text-sm text-muted">
           Explore a site to find its hidden API, or open one you have already explored.
         </p>
       </header>
+
+      {sites.data && count > 0 && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatTile filled label="Sites explored" value={count} note="with a saved run" />
+          <StatTile label="Endpoints found" value={endpoints} note="across all sites" />
+          <StatTile label="Verified" value={verified} note="proved by a live request" />
+          <StatTile label="Runs" value={runs} note="all time" />
+        </div>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <Card>

@@ -64,12 +64,12 @@ export function Pill({ children, className, title }: { children: ReactNode; clas
 // --- layout pieces ---
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("rounded-xl border border-line bg-surface", className)}>{children}</div>;
+  return <div className={cx("rounded-2xl border border-line bg-surface shadow-[var(--shadow-card)]", className)}>{children}</div>;
 }
 
 export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+    <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3.5">
       <h2 className="text-sm font-semibold">{children}</h2>
       {right}
     </div>
@@ -79,7 +79,7 @@ export function SectionTitle({ children, right }: { children: ReactNode; right?:
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-accent text-white hover:brightness-110 dark:text-[#120d24]",
+  primary: "bg-accent text-white hover:brightness-110 dark:text-[#0a0f20]",
   secondary: "border border-line bg-surface hover:bg-surface-2",
   ghost: "hover:bg-surface-2 text-muted hover:text-fg",
   danger: "border border-bad/40 text-bad hover:bg-bad/10",
@@ -95,11 +95,29 @@ export function Button({
       type="button"
       {...props}
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
         VARIANT[variant],
         className,
       )}
     />
+  );
+}
+
+/** Summary tile: a big number with a label. `filled` makes it the royal blue lead tile. */
+export function StatTile({ label, value, note, filled }: { label: string; value: ReactNode; note?: ReactNode; filled?: boolean }) {
+  return (
+    <div
+      className={cx(
+        "rounded-2xl border p-4",
+        filled
+          ? "border-accent bg-accent text-white dark:text-[#0a0f20]"
+          : "border-line bg-surface text-fg shadow-[var(--shadow-card)]",
+      )}
+    >
+      <p className={cx("text-sm", filled ? "opacity-90" : "text-muted")}>{label}</p>
+      <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight">{value}</p>
+      {note && <p className={cx("mt-1 text-xs", filled ? "opacity-90" : "text-muted")}>{note}</p>}
+    </div>
   );
 }
 
