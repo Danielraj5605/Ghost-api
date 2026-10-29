@@ -12,8 +12,9 @@ Give Ghost API a website and a plain-English goal. It opens the site in a real b
 
 ---
 
-**Documentation:** guides, the command reference and the Python API are in [docs/](docs/index.md)
-(build the site with `pip install -e ".[docs]"` then `mkdocs serve`).
+**Documentation:** guides, the command reference and the Python API are at
+<https://danielraj5605.github.io/Ghost-api/> (source in [docs/](docs/index.md); preview locally
+with `pip install -e ".[docs]"` then `mkdocs serve`).
 
 ## Table of contents
 

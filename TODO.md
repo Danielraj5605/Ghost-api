@@ -23,7 +23,7 @@ What is left, in order. Last updated: 2026-10-30 (v0.2.0 published on PyPI).
       This workflow has not run yet with the updated (Node 24) actions.
 - [x] [Claude] **Check the published package:** `pipx install ghost-api-cli` in a fresh shell,
       `ghost-api --version` shows 0.2.0, `ghost-api doctor` works.
-- [ ] [You + Claude] **Docs website** (after the repository is public): Settings → Pages →
+- [x] [You + Claude] **Docs website** (after the repository is public): Settings → Pages →
       Source: GitHub Actions, then run "Publish the documentation". Address:
       `https://danielraj5605.github.io/Ghost-api/`. Then add it to the repository's
       "Website" field and the README.
