@@ -1,6 +1,6 @@
 # To do
 
-What is left, in order. Last updated: 2026-10-17 (after v0.2.0 was prepared, CI green).
+What is left, in order. Last updated: 2026-10-30 (v0.2.0 published on PyPI).
 
 **Who:** [You] = needs you (an account, a decision or a click) · [Claude] = Claude can do it.
 
@@ -8,20 +8,20 @@ What is left, in order. Last updated: 2026-10-17 (after v0.2.0 was prepared, CI 
 
 ## 1. Release v0.2.0 (blocking: nothing else ships without these)
 
-- [ ] [You] **Decide: public or private repository.** Developers can't find or trust a private
+- [x] [You] **Decide: public or private repository.** Public since 2026-10-30. Developers can't find or trust a private
       tool, and the docs website on a private repository needs a paid plan. All keys,
       including dummy ones, are already removed from the whole history.
       Make it public: `gh repo edit --visibility public --accept-visibility-change-consequences`
       (or Settings → General → Danger Zone → Change visibility).
-- [ ] [You] **PyPI trusted publishing.** On pypi.org (with two-factor login on):
+- [x] [You] **PyPI trusted publishing.** On pypi.org (with two-factor login on):
       Your account → Publishing → Add a new pending publisher:
       project `ghost-api-cli`, owner `Danielraj5605`, repository `Ghost-api`,
       workflow `release.yml`, environment `pypi`.
       (The GitHub `pypi` environment already exists.)
-- [ ] [Claude] **Tag and release** (`git tag v0.2.0 && git push origin v0.2.0`), then watch the
+- [x] [Claude] **Tag and release** (`git tag v0.2.0 && git push origin v0.2.0`), then watch the
       release workflow: PyPI upload, signed provenance, GitHub release with the changelog.
       This workflow has not run yet with the updated (Node 24) actions.
-- [ ] [Claude] **Check the published package:** `pipx install ghost-api-cli` in a fresh shell,
+- [x] [Claude] **Check the published package:** `pipx install ghost-api-cli` in a fresh shell,
       `ghost-api --version` shows 0.2.0, `ghost-api doctor` works.
 - [ ] [You + Claude] **Docs website** (after the repository is public): Settings → Pages →
       Source: GitHub Actions, then run "Publish the documentation". Address:
