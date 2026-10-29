@@ -1,6 +1,6 @@
 # Ghost API
 
-**An AI agent that turns any website into a typed, tested API client.**
+**Find a website's hidden API and get a typed, tested client for it.**
 
 Give Ghost API a website and a plain-English goal. It opens the site in a real browser, watches the hidden requests the site makes to its own server, works out how that hidden API behaves, and writes a clean Python (or TypeScript) client library for it, with tests.
 
@@ -357,11 +357,9 @@ and map what they see (`--no-agent`).
 put the `ghost-api` command on your PATH in its own environment:
 
 ```bash
-pipx install git+https://github.com/Danielraj5605/Ghost-api
-# or:  uv tool install git+https://github.com/Danielraj5605/Ghost-api
+pipx install ghost-api-cli
+# or:  uv tool install ghost-api-cli
 ```
-
-(After the first PyPI release this becomes `pipx install ghost-api-cli`.)
 
 **2. Set up a folder** for your work. `init` creates the project file, downloads the
 browser Ghost API drives (Chromium, about 150 MB, once), asks for an LLM key (optional,

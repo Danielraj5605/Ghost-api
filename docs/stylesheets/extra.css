@@ -1,32 +1,199 @@
-/* Brand colours: the same royal blue as the dashboard and the terminal. Flat colours only. */
+/* Brand colours: the same royal blue as the dashboard and the terminal. Flat colours only.
+   Material sets the root font size to 125%, so 1rem is 20px here. */
+:root {
+  --md-text-font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --md-code-font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+}
+
 :root,
 [data-md-color-scheme="default"] {
+  --gh-surface: #f6f8fd;
+  --gh-line: #e3e8f4;
+  --gh-shadow: 0 1px 2px rgb(20 36 90 / 0.06), 0 12px 32px -12px rgb(20 36 90 / 0.18);
+
+  --md-default-fg-color: #0e1530;
+  --md-default-fg-color--light: #4f5b7c;
+  --md-default-fg-color--lighter: #8a94b2;
+  --md-default-fg-color--lightest: #e3e8f4;
   --md-primary-fg-color: #2f55d4;
   --md-primary-fg-color--light: #4a6ee0;
   --md-primary-fg-color--dark: #2443b0;
-  --md-accent-fg-color: #2f55d4;
+  --md-accent-fg-color: #2443b0;
   --md-typeset-a-color: #2f55d4;
+  --md-code-bg-color: #f3f5fb;
+  --md-code-fg-color: #1d2747;
   --md-code-hl-keyword-color: #2f55d4;
   --md-code-hl-function-color: #0f766e;
   --md-code-hl-constant-color: #b45309;
+  --md-code-hl-string-color: #15803d;
+  --md-footer-bg-color: #f6f8fd;
+  --md-footer-bg-color--dark: #f6f8fd;
+  --md-footer-fg-color: #0e1530;
+  --md-footer-fg-color--light: #4f5b7c;
+  --md-footer-fg-color--lighter: #8a94b2;
 }
 
+/* Dark: the dashboard's navy, not Material's grey slate. */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #1c2b66;
-  --md-primary-fg-color--light: #25315f;
-  --md-primary-fg-color--dark: #111933;
-  --md-accent-fg-color: #86a2ff;
-  --md-accent-bg-color: #0a0f20; /* text on accent (button hover) */
+  --gh-surface: #111933;
+  --gh-line: #232f58;
+  --gh-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -12px rgb(0 0 0 / 0.6);
+
+  --md-default-bg-color: #0a0f20;
+  --md-default-fg-color: #e9edfb;
+  --md-default-fg-color--light: #9aa6cc;
+  --md-default-fg-color--lighter: #6b779c;
+  --md-default-fg-color--lightest: #232f58;
+  --md-primary-fg-color: #3b63e6;
+  --md-primary-fg-color--light: #4f7cff;
+  --md-primary-fg-color--dark: #2f55d4;
+  --md-primary-bg-color: #ffffff;
+  --md-accent-fg-color: #a9bcff;
+  --md-accent-bg-color: #0a0f20;
   --md-typeset-a-color: #86a2ff;
+  --md-code-bg-color: #111933;
+  --md-code-fg-color: #dfe5f8;
   --md-code-hl-keyword-color: #86a2ff;
   --md-code-hl-function-color: #5eead4;
   --md-code-hl-constant-color: #fbbf24;
+  --md-code-hl-string-color: #86efac;
+  --md-footer-bg-color: #0d1328;
+  --md-footer-bg-color--dark: #0d1328;
+  --md-footer-fg-color: #e9edfb;
+  --md-footer-fg-color--light: #9aa6cc;
+  --md-footer-fg-color--lighter: #6b779c;
+  --md-typeset-table-color: #232f58;
 }
 
-/* Outlined buttons use the link colour, which is readable in both schemes. */
+/* Header: page background with a hairline, blue only as an accent. */
+.md-header {
+  --md-primary-bg-color: var(--md-default-fg-color);
+  --md-primary-bg-color--light: var(--md-default-fg-color--light);
+  background-color: var(--md-default-bg-color);
+  border-bottom: 1px solid var(--gh-line);
+  box-shadow: none;
+  color: var(--md-default-fg-color);
+}
+
+.md-header[data-md-state="shadow"],
+.md-header--shadow {
+  box-shadow: none;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.3rem;
+  width: auto;
+}
+
+.md-header__topic:first-child {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.md-search__form {
+  background-color: var(--gh-surface);
+  border: 1px solid var(--gh-line);
+  border-radius: 0.4rem;
+}
+
+.md-search__form:hover {
+  background-color: var(--gh-surface);
+  border-color: var(--md-default-fg-color--lighter);
+}
+
+.md-search__input::placeholder {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-search__input + .md-search__icon,
+.md-search__icon {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-source {
+  font-size: 0.65rem;
+}
+
+/* Typography for every page. */
+.md-typeset {
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+.md-typeset pre > code {
+  border: 1px solid var(--gh-line);
+  border-radius: 0.4rem;
+}
+
+/* Buttons: one size, small radius, solid primary and a neutral outline. */
+.md-typeset .md-button {
+  border-radius: 0.4rem;
+  border-width: 1px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.55em 1.25em;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+  color: #fff;
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus-visible {
+  background-color: var(--md-primary-fg-color--dark);
+  border-color: var(--md-primary-fg-color--dark);
+  color: #fff;
+}
+
 .md-typeset .md-button:not(.md-button--primary) {
-  border-color: var(--md-typeset-a-color);
-  color: var(--md-typeset-a-color);
+  background-color: var(--md-default-bg-color);
+  border-color: var(--gh-line);
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .md-button:not(.md-button--primary):hover,
+.md-typeset .md-button:not(.md-button--primary):focus-visible {
+  background-color: var(--gh-surface);
+  border-color: var(--md-default-fg-color--lighter);
+  color: var(--md-default-fg-color);
+}
+
+/* Footer: a light band with readable links instead of a black slab. */
+.md-footer {
+  border-top: 1px solid var(--gh-line);
+}
+
+.md-footer-meta {
+  background-color: var(--md-footer-bg-color);
+}
+
+.md-copyright {
+  font-size: 0.7rem;
 }
 
 .gh-legal {
@@ -46,95 +213,242 @@
   text-decoration: underline;
 }
 
-/* Typography for every page: solid headings instead of Material's light grey ones.
-   Material sets the root font size to 125%, so 1rem is 20px here. */
-.md-typeset h1 {
-  color: var(--md-default-fg-color);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.md-typeset h2 {
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.md-typeset h3 {
-  font-weight: 600;
-}
-
 /* Home page. Plain sections, no effects. */
 .gh-home {
-  max-width: 46rem;
   margin: 0 auto;
+  max-width: 56rem;
+}
+
+.md-typeset .gh-home h2 {
+  font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+  line-height: 1.25;
+  margin: 0.2rem 0 0.6rem;
+}
+
+.md-typeset .gh-home h3 {
+  font-size: 0.85rem;
+  margin: 0 0 0.4rem;
 }
 
 .gh-hero {
-  padding: 1.2rem 0 0.4rem;
+  margin: 0 auto;
+  max-width: 40rem;
+  padding: 0.8rem 0 0.4rem;
+  text-align: center;
 }
 
 .md-typeset .gh-hero h1 {
-  font-size: clamp(1.6rem, 4vw, 2.3rem);
-  line-height: 1.15;
-  margin: 0.4rem 0 0.8rem;
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  line-height: 1.1;
+  margin: 0.8rem 0 0.8rem;
+  text-wrap: balance;
 }
 
 .md-typeset .gh-hero > p {
+  color: var(--md-default-fg-color--light);
   font-size: 0.9rem;
   line-height: 1.6;
-  max-width: 38rem;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 34rem;
 }
 
-.md-typeset .gh-eyebrow {
+.md-typeset .gh-badge {
+  border: 1px solid var(--gh-line);
+  border-radius: 999px;
   color: var(--md-default-fg-color--light);
+  display: inline-block;
   font-size: 0.65rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  padding: 0.25em 0.9em;
+}
+
+.md-typeset .gh-badge:hover,
+.md-typeset .gh-badge:focus-visible {
+  border-color: var(--md-typeset-a-color);
+  color: var(--md-typeset-a-color);
+}
+
+.gh-hero__install {
+  margin: 1.2rem auto 0;
+  max-width: 24rem;
+  text-align: left;
+}
+
+.md-typeset .gh-hero__install pre {
   margin: 0;
-  text-transform: uppercase;
+}
+
+.md-typeset .gh-hero__install pre > code {
+  font-size: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.gh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.md-typeset .gh-actions .md-button {
+  margin: 0;
+}
+
+.md-typeset .gh-hero > p.gh-meta {
+  color: var(--md-default-fg-color--lighter);
+  font-size: 0.65rem;
+  margin-top: 1rem;
+}
+
+.md-typeset .gh-shot {
+  margin: 1.6rem 0 0;
+  max-width: none;
+}
+
+.md-typeset .gh-shot img {
+  border: 1px solid var(--gh-line);
+  border-radius: 0.6rem;
+  box-shadow: var(--gh-shadow);
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+[data-md-color-scheme="default"] .md-typeset .gh-shot img[src$="#only-dark"],
+[data-md-color-scheme="slate"] .md-typeset .gh-shot img[src$="#only-light"] {
+  display: none;
+}
+
+.md-typeset .gh-shot figcaption {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.65rem;
+  font-style: normal;
+  margin: 0.8rem auto 0;
+  max-width: 34rem;
 }
 
 .gh-section {
-  border-top: 1px solid var(--md-default-fg-color--lightest);
-  margin-top: 2.4rem;
-  padding-top: 0.4rem;
+  margin-top: 4rem;
 }
 
-.gh-steps {
+.md-typeset .gh-kicker {
+  color: var(--md-typeset-a-color);
+  font-size: 0.7rem;
+  font-weight: 650;
+  margin: 0;
+}
+
+.md-typeset .gh-section > p:not(.gh-kicker) {
+  color: var(--md-default-fg-color--light);
+  max-width: 40rem;
+}
+
+.gh-steps,
+.gh-grid {
   display: grid;
   gap: 0.8rem;
   grid-template-columns: 1fr;
-  margin: 1rem 0;
+  margin: 1.2rem 0;
 }
 
-.gh-step {
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.4rem;
+.gh-card {
+  background-color: var(--gh-surface);
+  border: 1px solid var(--gh-line);
+  border-radius: 0.6rem;
   min-width: 0; /* lets code blocks scroll instead of widening the grid */
-  padding: 0.2rem 0.8rem;
+  padding: 1rem 1.1rem;
 }
 
-.md-typeset .gh-step__label {
+.md-typeset .gh-card > :last-child {
+  margin-bottom: 0;
+}
+
+.md-typeset .gh-card p {
+  color: var(--md-default-fg-color--light);
+  margin: 0.3rem 0;
+}
+
+.md-typeset .gh-card ul {
+  color: var(--md-default-fg-color--light);
+  margin: 0.4rem 0 0;
+}
+
+.md-typeset .gh-card li {
+  margin-bottom: 0.25rem;
+  margin-left: 1rem;
+}
+
+.md-typeset .gh-card pre {
+  margin: 0.6rem 0 0;
+}
+
+.md-typeset .gh-card pre > code {
+  background-color: var(--md-default-bg-color);
+}
+
+.md-typeset .gh-card__step {
+  align-items: center;
+  border: 1px solid var(--gh-line);
+  border-radius: 999px;
   color: var(--md-typeset-a-color);
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 650;
-  margin-top: 0.6rem;
+  display: inline-flex;
+  font-size: 0.65rem;
+  font-weight: 700;
+  height: 1.4rem;
+  justify-content: center;
+  margin-bottom: 0.6rem;
+  width: 1.4rem;
+  background-color: var(--md-default-bg-color);
 }
 
-.gh-facts {
+.md-typeset .gh-link {
+  font-weight: 600;
+}
+
+.md-typeset .gh-link::after {
+  content: " \2192";
+}
+
+.gh-split {
   display: grid;
-  gap: 0.8rem 1.6rem;
+  gap: 3rem;
   grid-template-columns: 1fr;
-  margin: 1rem 0;
 }
 
-.md-typeset .gh-facts p {
-  margin: 0.2rem 0;
+.md-typeset .gh-split p:not(.gh-kicker),
+.md-typeset .gh-split ul {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .gh-split li {
+  margin-bottom: 0.3rem;
+}
+
+.gh-cta {
+  background-color: var(--gh-surface);
+  border: 1px solid var(--gh-line);
+  border-radius: 0.8rem;
+  margin: 4rem 0 1rem;
+  padding: 2rem 1.2rem;
+  text-align: center;
+}
+
+.md-typeset .gh-cta h2 {
+  margin-top: 0;
+}
+
+.md-typeset .gh-cta .gh-hero__install {
+  margin: 1rem auto 1.2rem;
+}
+
+.md-typeset .gh-cta .md-button {
+  margin: 0.3rem;
 }
 
 @media screen and (min-width: 45em) {
-  .gh-facts {
+  .gh-grid {
     grid-template-columns: 1fr 1fr;
   }
 }
@@ -142,5 +456,28 @@
 @media screen and (min-width: 60em) {
   .gh-steps {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .gh-split {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .gh-hero {
+    padding-top: 1.6rem;
+  }
+}
+
+/* Phones: full-width buttons of the same size. */
+@media screen and (max-width: 30em) {
+  .gh-actions {
+    flex-direction: column;
+  }
+
+  .md-typeset .gh-actions .md-button,
+  .md-typeset .gh-cta .md-button {
+    display: block;
+    margin: 0.3rem 0;
+    text-align: center;
+    width: 100%;
   }
 }

@@ -9,36 +9,63 @@ hide:
 
 <section class="gh-hero" markdown>
 
-<p class="gh-eyebrow">Open source · MIT · runs on your computer</p>
+[Version 0.2.0 is on PyPI](https://pypi.org/project/ghost-api-cli/){ .gh-badge }
 
 # Find a website's hidden API. Get a typed, tested client.
 
 Most websites load their data from their own JSON API. Ghost API opens the site in a real
-browser, records those requests, proves how they behave with direct calls, and writes a Python
-or TypeScript client for them.
+browser, records those requests, proves how they behave with direct calls, and writes a
+Python or TypeScript client for them.
+
+<div class="gh-hero__install" markdown>
 
 ```bash
-pipx install git+https://github.com/Danielraj5605/Ghost-api
-ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes with their authors"
+pipx install ghost-api-cli
 ```
 
+</div>
+
+<div class="gh-actions" markdown>
+
 [Get started](getting-started.md){ .md-button .md-button--primary }
-[See real runs](gallery.md){ .md-button }
+[View on GitHub](https://github.com/Danielraj5605/Ghost-api){ .md-button }
+
+</div>
+
+<p class="gh-meta">Python 3.11+ · MIT licence · runs on your computer</p>
 
 </section>
 
+<figure class="gh-shot" markdown>
+
+![The Ghost API dashboard showing the verified /api/quotes endpoint on quotes.toscrape.com](images/home-dashboard-light.webp#only-light){ width="1920" height="1200" }
+![The Ghost API dashboard showing the verified /api/quotes endpoint on quotes.toscrape.com](images/home-dashboard-dark.webp#only-dark){ width="1920" height="1200" }
+
+<figcaption>The local dashboard after a real run on quotes.toscrape.com: one endpoint, its
+parameters and reply shape, verified by two live tests.</figcaption>
+
+</figure>
+
 <section class="gh-section" markdown>
+
+<p class="gh-kicker">How it works</p>
 
 ## One real run, start to finish
 
 From a run on quotes.toscrape.com, a public practice site. Nothing below is edited except
 for length.
 
+```bash
+ghost-api run https://quotes.toscrape.com/scroll --goal "list quotes with their authors"
+```
+
 <div class="gh-steps" markdown>
 
-<div class="gh-step" markdown>
+<div class="gh-card" markdown>
 
-<span class="gh-step__label">1. Recorded in the browser</span>
+<span class="gh-card__step">1</span>
+
+### Recorded in the browser
 
 The page loads more quotes as you scroll. Behind it is one request to the site's own
 server:
@@ -49,31 +76,30 @@ GET /api/quotes?page={page}
 
 </div>
 
-<div class="gh-step" markdown>
+<div class="gh-card" markdown>
 
-<span class="gh-step__label">2. Proved with direct calls</span>
+<span class="gh-card__step">2</span>
+
+### Proved with direct calls
 
 From the run's report, "Hypotheses tested":
 
-- confirmed: can be called directly, outside the browser (HTTP 200, 10 records)
-- confirmed: paginates with page parameter `page` (the next page returned 10 different
-  records)
-- confirmed: needs none of its custom headers or cookies
+- Called directly, outside the browser: HTTP 200, 10 records.
+- Paginates with `page`: the next page returned 10 different records.
+- Needs none of its custom headers or cookies.
 
 </div>
 
-<div class="gh-step" markdown>
+<div class="gh-card" markdown>
 
-<span class="gh-step__label">3. Written as a client</span>
+<span class="gh-card__step">3</span>
 
-Models are inferred from real replies, then the client's own tests run against the live API:
+### Written as a client
+
+Models are inferred from real replies, then the client's own tests run against the live
+API:
 
 ```python
-class Author(_Model):
-    goodreads_link: str
-    name: str
-    slug: str
-
 class Quote(_Model):
     author: Author
     tags: list[str]
@@ -96,74 +122,109 @@ with QuotesToscrapeClient() as api:
 
 <section class="gh-section" markdown>
 
+<p class="gh-kicker">Measured, not claimed</p>
+
 ## Why not just ask an AI assistant?
 
-We measured it. On a small site with readable JavaScript, Claude Code alone found all 5
-endpoints in 7 turns; with Ghost API it took 12 turns, at a similar cost. Finding endpoints
-on easy sites is not where Ghost API helps. Keeping the result working is:
+On a small site with readable JavaScript, Claude Code alone found all 5 endpoints in 7 turns;
+with Ghost API it took 12 turns, at a similar cost. Finding endpoints on easy sites is not
+where Ghost API helps. Keeping the result working is.
 
-<div class="gh-facts" markdown>
+<div class="gh-grid" markdown>
 
-<div markdown>
-**Re-check the live API later**
+<div class="gh-card" markdown>
 
-`ghost-api diff --live` in 6.5 s, with no LLM call.
-</div>
+### Re-check in 6.5 seconds
 
-<div markdown>
-**Tests in CI when the site is down**
-
-Recorded replies are replayed: 7 tests passed in 9 s, offline.
-</div>
-
-<div markdown>
-**Know what changed**
-
-Changes are classified as breaking or added, and the client version is bumped.
-</div>
-
-<div markdown>
-**Rules for every request**
-
-`robots.txt`, rate limits and team rules are enforced, and each request Ghost API sends is logged.
-</div>
+`ghost-api diff --live` compares the live API with the recorded one, with no LLM call.
 
 </div>
 
-[Read the full comparison](benchmark.md)
+<div class="gh-card" markdown>
+
+### Tests that run offline
+
+Recorded replies are replayed in CI: 7 tests passed in 9 seconds, offline.
+
+</div>
+
+<div class="gh-card" markdown>
+
+### Know what changed
+
+Changes are classified as breaking or added, and the client version is bumped to match.
+
+</div>
+
+<div class="gh-card" markdown>
+
+### Rules for every request
+
+`robots.txt`, rate limits and team rules are enforced, and every request it sends is
+logged.
+
+</div>
+
+</div>
+
+[Read the full comparison](benchmark.md){ .gh-link }
 
 </section>
 
-<section class="gh-section" markdown>
+<section class="gh-section gh-split" markdown>
+
+<div markdown>
+
+<p class="gh-kicker">Assistants</p>
 
 ## Use it from your assistant
 
-Claude Code, Cursor, VS Code and Claude Desktop can drive Ghost API as a set of tools: the
-assistant decides where to click, and Ghost API records, checks and remembers. No second LLM
-key is needed.
+Claude Code, Cursor, VS Code and Claude Desktop can drive Ghost API as a set of tools. The
+assistant decides where to click; Ghost API records, checks and remembers. No second LLM key
+is needed.
 
 ```bash
 ghost-api integrate claude-code
 ```
 
-[Set up an assistant](guide/assistants.md)
+[Set up an assistant](guide/assistants.md){ .gh-link }
 
-</section>
+</div>
 
-<section class="gh-section" markdown>
+<div markdown>
+
+<p class="gh-kicker">Safety</p>
 
 ## Polite by design
 
 - Follows `robots.txt` and limits its own request rate.
-- Stops at bot checks and never tries to get past them. When a site needs a login, you log
-  in yourself in the browser window.
+- Stops at bot checks. When a site needs a login, you log in yourself.
 - Never sends requests that change data on a site.
-- Hides personal data (emails, phone numbers, card and ID numbers) before storing anything.
+- Hides personal data (emails, phone, card and ID numbers) before storing anything.
 - Refuses to let a website steer it into your own network.
-- Sends no telemetry. Apart from the site you explore, data goes only to the AI provider and
-  notification service you choose, if any.
+- Sends no telemetry.
 
-[Security and data](security.md) lists exactly what is collected and what leaves your machine.
+[What is collected and what leaves your machine](security.md){ .gh-link }
+
+</div>
+
+</section>
+
+<section class="gh-cta" markdown>
+
+## Try it on a practice site
+
+<div class="gh-hero__install" markdown>
+
+```bash
+pipx install ghost-api-cli
+ghost-api init
+```
+
+</div>
+
+[Read the guide](getting-started.md){ .md-button .md-button--primary }
+[See real runs](gallery.md){ .md-button }
 
 </section>
 

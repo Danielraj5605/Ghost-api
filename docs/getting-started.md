@@ -8,8 +8,8 @@ and map what they see (`--no-agent`).
 ## 1. Install
 
 ```bash
-pipx install git+https://github.com/Danielraj5605/Ghost-api
-# or:  uv tool install git+https://github.com/Danielraj5605/Ghost-api
+pipx install ghost-api-cli
+# or:  uv tool install ghost-api-cli
 ```
 
 ## 2. Set up a folder

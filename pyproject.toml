@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # "ghost-api" is taken on PyPI by another project; the command is still `ghost-api`.
 name = "ghost-api-cli"
 dynamic = ["version"]
-description = "An AI agent that turns any website into a typed, tested API client."
+description = "Find a website's hidden API and get a typed, tested client for it."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
