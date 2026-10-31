@@ -361,6 +361,28 @@ pipx install ghost-api-cli
 # or:  uv tool install ghost-api-cli
 ```
 
+**Don't have pipx?** (`'pipx' is not recognized` or `command not found`) Install it, then
+open a **new** terminal window so it picks up the PATH change:
+
+```bash
+# Windows (Command Prompt or PowerShell), with Python 3.11+ from python.org
+py -m pip install --user pipx
+py -m pipx ensurepath
+
+# macOS (Homebrew; also installs a recent Python)
+brew install pipx
+pipx ensurepath
+
+# Ubuntu / Debian
+sudo apt install pipx
+pipx ensurepath
+```
+
+If `pipx` is still not found in the new window, `py -m pipx install ghost-api-cli` (Windows)
+works without it. On macOS without Homebrew, install Python 3.11+ from
+[python.org](https://www.python.org/downloads/), then `python3 -m pip install --user pipx`:
+the `python3` that comes with macOS is 3.9, too old for Ghost API.
+
 **2. Set up a folder** for your work. `init` creates the project file, downloads the
 browser Ghost API drives (Chromium, about 150 MB, once), asks for an LLM key (optional,
 typed hidden, saved in `.env`) and keeps keys and data out of git:
