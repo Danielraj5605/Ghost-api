@@ -35,9 +35,10 @@ class RateLimiter:
         self.interval = max(self.interval, min_interval)
 
     def wait(self) -> None:
-        now = time.monotonic()
-        delay = self._last + self.interval - now
-        if delay > 0:
+        # Sleep until the clock itself shows the interval has passed: on Windows with
+        # Python < 3.13, monotonic() ticks every ~16 ms and sleep() can end just short.
+        target = self._last + self.interval
+        while (delay := target - time.monotonic()) > 0:
             time.sleep(delay)
         self._last = time.monotonic()
 
