@@ -4,7 +4,16 @@ import pytest
 
 from ghost_api.capture import filters
 from ghost_api.capture.filters import REDACTED
-from tests.fake_secrets import API_KEY, PASSWORD, SESSION_ID, TOKEN, bearer, fake_jwt, fake_token
+from tests.fake_secrets import (
+    API_KEY,
+    PASSWORD,
+    SESSION_ID,
+    TOKEN,
+    bearer,
+    fake_jwt,
+    fake_provider_keys,
+    fake_token,
+)
 
 
 @pytest.mark.parametrize(
@@ -114,6 +123,31 @@ def test_redact_text_masks_jwt_and_bearer() -> None:
     out = filters.redact_text(text)
     assert jwt not in out
     assert fake_token() not in out
+
+
+@pytest.mark.parametrize("key", fake_provider_keys())
+def test_secret_keys_are_redacted_whatever_the_field_is_called(key: str) -> None:
+    # "key" alone is not a sensitive name, so only the value's shape can catch these.
+    url = filters.redact_url(f"https://api.example.com/x?key={key}&q=1")
+    assert key not in url and "q=1" in url
+    assert key not in filters.redact_text(f"config: {key};")
+    body = filters.redact_body(json.dumps({"k": key}), "application/json")
+    assert json.loads(body or "") == {"k": REDACTED}
+    form = filters.redact_body(f"k={key}&q=1", "application/x-www-form-urlencoded")
+    assert form is not None and key not in form and "q=1" in form
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/p/sk-ii-facial-treatment-essence-230ml",  # a product slug, not a key
+        "?key=" + "AI" + "za" + "SyAb1Ab1Ab1Ab1Ab1Ab1Ab1Ab1Ab1Ab1Ab1",  # public browser key
+        "ghp_short",
+        "task-1234567890abcdefghij",
+    ],
+)
+def test_ordinary_values_are_not_mistaken_for_keys(text: str) -> None:
+    assert filters.redact_text(text) == text
 
 
 def test_redact_body_json_and_form() -> None:

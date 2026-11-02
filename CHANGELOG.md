@@ -6,6 +6,19 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 
 ## [Unreleased]
 
+### Security
+- Generated clients: text from a site's URLs can no longer become code. A path such as
+  `/api/%7B...%7D` was decoded and written inside a Python f-string or a TypeScript
+  template literal, so a hostile site could put an expression into the client. Paths are
+  now plain string literals joined with the encoded arguments; URL text in docstrings and
+  doc comments is escaped too.
+- Redaction: secret API keys with a well-known prefix (OpenAI, Anthropic, GitHub, AWS,
+  Slack, Stripe, Groq) are hidden by their value, whatever the field is called (e.g.
+  `?key=...`), and in form bodies too. Public browser keys (Google's `AIza...`) are kept,
+  because sites ship them in their pages and replaying a call needs them.
+- Dashboard development: vitest 5 and vite 6.4.5 (`npm audit` advisories in the test
+  runner and dev server; the built dashboard is unchanged).
+
 ## [0.2.0] - 2026-10-29
 
 ### Added

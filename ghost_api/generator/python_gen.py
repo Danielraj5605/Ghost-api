@@ -158,13 +158,44 @@ def _doc(text: str) -> str:
     return text.replace("\\", "/").replace('"""', "'''").strip()
 
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def path_parts(method: MethodSpec) -> list[tuple[str, str]]:
+    """The path as ("text", literal) and ("arg", name) parts.
+
+    Only {name} placeholders of the method's own path arguments are arguments. Everything
+    else is literal text, even braces: paths come from the site's URLs (decoded), so a
+    hostile site could send '/api/%7B__import__(...)%7D' and must not get code into the
+    generated client."""
+    args = {p.name for p in method.params if p.location == "path"}
+    parts: list[tuple[str, str]] = []
+    text = ""
+    pos = 0
+    for m in _PLACEHOLDER_RE.finditer(method.path):
+        if m.group(1) not in args:
+            continue
+        text += method.path[pos : m.start()]
+        if text:
+            parts.append(("text", text))
+            text = ""
+        parts.append(("arg", m.group(1)))
+        pos = m.end()
+    text += method.path[pos:]
+    if text or not parts:
+        parts.append(("text", text))
+    return parts
+
+
 def _path_expr(method: MethodSpec) -> str:
-    """'/api/books/{id}' -> f"/api/books/{quote(str(id), safe='')}"."""
-    if "{" not in method.path:
-        return repr(method.path)
-    escaped = method.path.replace("'", "\\'")
-    expr = re.sub(r"\{(\w+)\}", lambda m: "{quote(str(" + m.group(1) + "), safe='')}", escaped)
-    return 'f"' + expr.replace('"', '\\"') + '"'
+    """'/api/books/{id}' -> '/api/books/' + quote(str(id), safe='').
+
+    Literal text is written with repr(), never inside an f-string, so nothing from the
+    site's URLs can become code."""
+    return " + ".join(
+        repr(value) if kind == "text" else f"quote(str({value}), safe='')"
+        for kind, value in path_parts(method)
+    )
 
 
 def _creds(method: MethodSpec, spec: ClientSpec, location: str) -> list[CredentialSpec]:

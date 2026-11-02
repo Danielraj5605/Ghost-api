@@ -95,6 +95,31 @@ _HEALTH_RE = re.compile(
 
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}")
 _BEARER_RE = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
+# Secret API keys with a well-known prefix, found by their value whatever the field is
+# called (e.g. ?key=...). Public browser keys (Google's AIza...) are left alone: sites ship
+# them in their pages, and replaying a stored call needs them.
+_SECRET_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}"  # GitHub
+    r"|(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])"  # AWS access key id
+    r"|xox[abprs]-[0-9]+-[A-Za-z0-9-]{8,}"  # Slack
+    r"|[sr]k_live_[A-Za-z0-9]{16,}"  # Stripe secret and restricted keys
+    r"|gsk_[A-Za-z0-9]{20,}"  # Groq
+    r")"
+)
+# OpenAI and Anthropic keys. "sk-" also starts ordinary URL slugs, so see _openai_style.
+_SK_KEY_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}")
+
+
+def _openai_style(match: re.Match[str]) -> str:
+    """Random keys mix digits and capitals; a slug like 'sk-ii-facial-treatment-essence'
+    does not, so it is kept."""
+    value = match.group(0)
+    if any(c.isdigit() for c in value) and any(c.isupper() for c in value):
+        return REDACTED
+    return value
+
+
 _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
@@ -203,8 +228,11 @@ def is_sensitive_name(name: str) -> bool:
 
 
 def redact_text(text: str) -> str:
-    """Mask secret-looking values (JWTs, bearer/basic credentials) inside free text."""
+    """Mask secret-looking values (JWTs, bearer/basic credentials, secret API keys with a
+    well-known prefix) inside free text."""
     text = _JWT_RE.sub(REDACTED, text)
+    text = _SECRET_KEY_RE.sub(REDACTED, text)
+    text = _SK_KEY_RE.sub(_openai_style, text)
     return _BEARER_RE.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
 
 
@@ -251,5 +279,7 @@ def redact_body(body: str | None, content_type: str | None) -> str | None:
             pass
     if "x-www-form-urlencoded" in ctype:
         pairs = parse_qsl(body, keep_blank_values=True)
-        return urlencode([(k, REDACTED if is_sensitive_name(k) else v) for k, v in pairs])
+        return urlencode(
+            [(k, REDACTED if is_sensitive_name(k) else redact_text(v)) for k, v in pairs]
+        )
     return redact_text(body)

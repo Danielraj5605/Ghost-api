@@ -6,9 +6,9 @@ import json
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import httpx
 import pytest
@@ -26,8 +26,9 @@ from ghost_api.generator.naming import (
     pascal,
     snake,
 )
-from ghost_api.generator.python_gen import GenerationError, check, render, write
+from ghost_api.generator.python_gen import GenerationError, _path_expr, check, render, write
 from ghost_api.generator.spec import build_spec, is_user_input
+from ghost_api.generator.ts_gen import render_typescript
 from tests.fake_secrets import API_KEY, bearer, fake_value
 
 HOST = "shop.test"
@@ -410,6 +411,69 @@ def test_generated_async_client_matches_the_sync_one(generated: ModuleType) -> N
 
     item, pages = asyncio.run(main())
     assert item.maker.name == "m" and pages == [1, 2, 3]
+
+
+# A site's URL with code-like text in it. Paths are decoded, so this arrives as
+# /api/catalog/{len([])}/${Math.max()}/"""x*/ and must stay text in the generated code.
+HOSTILE_URL = f"https://{HOST}/api/catalog/%7Blen(%5B%5D)%7D/%24%7BMath.max()%7D/%22%22%22x%2A%2F"
+HOSTILE_PATH = '/api/catalog/{len([])}/${Math.max()}/"""x*/'
+
+
+def hostile_spec() -> Any:
+    reqs = [*REQUESTS, captured(HOSTILE_URL, {"ok": 1})]
+    eps = analyze(reqs)
+    for ep in eps:
+        ep.replayable = True
+    cls, names = apply_plan(None, eps, HOST)
+    spec = build_spec(HOST, START, eps, reqs, cls, names)
+    assert any(m.path == HOSTILE_PATH for m in spec.methods)
+    return spec
+
+
+def test_code_in_a_site_url_stays_text_in_the_python_client(tmp_path: Path) -> None:
+    spec = hostile_spec()
+    method = next(m for m in spec.methods if m.path == HOSTILE_PATH)
+    result = write(spec, tmp_path)
+    sent: list[str] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        sent.append(unquote(request.url.raw_path.decode()))
+        return httpx.Response(200, json={"ok": 1})
+
+    sys.path.insert(0, str(tmp_path))
+    sys.modules.pop("models", None)
+    try:
+        module = importlib.import_module(result.module)
+        api = module.ShopTestClient(
+            http_client=httpx.Client(transport=httpx.MockTransport(record)),
+            max_requests_per_second=0,
+        )
+        getattr(api, method.name)()
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop(result.module, None)
+        sys.modules.pop("models", None)
+    assert sent == [HOSTILE_PATH]  # an f-string would have sent /api/catalog/0/...
+
+
+def test_code_in_a_site_url_stays_text_in_the_typescript_client() -> None:
+    files = render_typescript(hostile_spec())
+    source = next(s for n, s in files.items() if n.endswith(".ts") and not n.endswith(".test.ts"))
+    assert json.dumps(HOSTILE_PATH) in source  # a plain string literal
+    call = next(line for line in source.splitlines() if "this.baseUrl +" in line and "Math" in line)
+    assert call.strip() == f"this.baseUrl + {json.dumps(HOSTILE_PATH)},"  # not a `template`
+    # In doc comments the path's "*/" is broken up, so it can't end the comment early.
+    assert "x*/" not in source.replace(json.dumps(HOSTILE_PATH), "")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/items/{id}", "/api/{id}/x{40+2}", "/api/\\'{id}\"", "/plain"],
+)
+def test_path_expressions_only_fill_real_arguments(path: str) -> None:
+    method = SimpleNamespace(path=path, params=[SimpleNamespace(name="id", location="path")])
+    expected = path.replace("{id}", "7")
+    assert eval(_path_expr(method), {"quote": quote, "id": 7}) == expected  # type: ignore[arg-type]
 
 
 @pytest.mark.skipif(importlib.util.find_spec("mypy") is None, reason="mypy not installed")

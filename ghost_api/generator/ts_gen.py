@@ -32,6 +32,7 @@ from ghost_api.generator.python_gen import (
     GeneratedClient,
     GenerationError,
     module_name,
+    path_parts,
 )
 from ghost_api.generator.spec import ClientSpec, CredentialSpec, MethodSpec, ParamSpec
 
@@ -148,12 +149,14 @@ def ts_prop(field: FieldDef) -> str:
 
 
 def _path_expr(method: MethodSpec) -> str:
-    """'/api/books/{id}' -> `/api/books/${encodeURIComponent(String(id))}`."""
-    expr = method.path.replace("`", "\\`")
-    expr = re.sub(
-        r"\{(\w+)\}", lambda m: "${encodeURIComponent(String(" + camel(m.group(1)) + "))}", expr
+    """'/api/books/{id}' -> "/api/books/" + encodeURIComponent(String(id)).
+
+    Literal text is a JSON string, never a template literal, so nothing from the site's
+    URLs (such as '${...}') can become code."""
+    return " + ".join(
+        json.dumps(value) if kind == "text" else f"encodeURIComponent(String({camel(value)}))"
+        for kind, value in path_parts(method)
     )
-    return f"`{expr}`"
 
 
 def _value(p: ParamSpec) -> str:

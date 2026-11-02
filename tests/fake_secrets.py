@@ -39,3 +39,19 @@ API_KEY = fake_value("apikey")
 PASSWORD = fake_value("password")
 SESSION_ID = fake_value("session")
 TOKEN = fake_value("token")
+
+
+def fake_provider_keys() -> list[str]:
+    """Values shaped like real secret API keys (OpenAI, Anthropic, GitHub, AWS, Slack,
+    Stripe, Groq), assembled from a prefix and filler so none appears in the source."""
+    body = "Ab1" * 12  # mixed case and digits, like a random key
+    return [
+        "sk" + "-" + body,
+        "sk" + "-ant-api03-" + body,
+        "gh" + "p_" + body,
+        "github" + "_pat_" + body,
+        "AK" + "IA" + "ABCDEFGH23456789",
+        "xo" + "xb-" + "1234567890-" + body,
+        "sk" + "_live_" + body,
+        "gs" + "k_" + body,
+    ]
