@@ -66,6 +66,7 @@ from ghost_api.memory.knowledge import (
 from ghost_api.memory.store import Store
 from ghost_api.net import DenyPaths, MultiHostRobotsPolicy, RateLimiter, RobotsPolicy, fetch_robots
 from ghost_api.netguard import NetworkPolicy
+from ghost_api.probe.feeds import add_platform_feeds
 from ghost_api.probe.prober import Prober, ProbeReport
 from ghost_api.probe.replay import Replayer, is_replayable
 from ghost_api.project import site_policy
@@ -530,6 +531,8 @@ class FinishResult:
 
 def finish(s: Session, status: str, reason: str, started: float, opts: RunOptions) -> FinishResult:
     store, site = s.store, s.site
+    if not opts.no_probe and status not in STOPPED:
+        platform_feeds(s)
     reports: dict[str, ProbeReport] = {}
     if not opts.no_probe and status not in STOPPED:
         s.phase("test")
@@ -646,6 +649,20 @@ def finish(s: Session, status: str, reason: str, started: float, opts: RunOption
     return FinishResult(endpoints, generated, generation_error)
 
 
+def platform_feeds(s: Session) -> None:
+    """Catalogue feeds the site's platform publishes but its pages never call (feeds.py)."""
+    for feed in add_platform_feeds(s.replayer, s.recorder.captured, s.host, s.recorder.add):
+        if feed.error is None:
+            s.emit(
+                Notice(
+                    f"{feed.platform} store: added its public product feed {feed.path} "
+                    f"({feed.records} products on the pages sampled)"
+                )
+            )
+        else:
+            s.emit(Notice(f"{feed.platform} store, but {feed.path} didn't work: {feed.error}"))
+
+
 def probe_all(s: Session) -> dict[str, ProbeReport]:
     """Workflow stage 4: test every endpoint with direct calls."""
     recorder = s.recorder
@@ -657,7 +674,9 @@ def probe_all(s: Session) -> dict[str, ProbeReport]:
     raws = list(recorder.raw)
     prober = Prober(s.replayer, on_sample=recorder.add)
     reports: dict[str, ProbeReport] = {}
-    for ep in endpoints:
+    # The site's own endpoints first: the request budget is shared, and on a store with
+    # many tracking scripts it ran out before the product feed was tested.
+    for ep in sorted(endpoints, key=lambda e: e.third_party):
         samples = [r for k, r in zip(keys, raws, strict=False) if k == ep.key and r]
         report = prober.probe(ep, samples)
         reports[ep.key] = report

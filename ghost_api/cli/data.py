@@ -447,6 +447,9 @@ def serve(
         for op in s.operations:
             console.print(f"  GET {base}/{to_url_id(s.site)}/{op.name}", markup=False)
     console.print("[dim]Add &format=csv for spreadsheets. Local only. Ctrl+C to stop.[/]")
+    from ghost_api.quiet_resets import quiet_connection_resets
+
+    quiet_connection_resets()
     uvicorn.run(create_rest_app(served, hosts), host="127.0.0.1", port=port, log_level="warning")
 
 

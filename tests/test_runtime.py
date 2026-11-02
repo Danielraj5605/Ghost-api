@@ -80,7 +80,23 @@ def test_records_and_flatten() -> None:
     row = flatten({"venue": {"name": "X", "loc": {"lat": 1}}, "tags": ["a", "b"],
                    "courts": [{"n": 1}]})  # fmt: skip
     assert row == {"venue.name": "X", "venue.loc.lat": 1, "tags": "a; b",
-                   "courts": json.dumps([{"n": 1}])}  # fmt: skip
+                   "courts": json.dumps([{"n": 1}]), "courts.n": "1"}  # fmt: skip
+
+
+def test_flatten_gives_list_fields_their_own_columns() -> None:
+    product = {
+        "title": "Airbass",
+        "variants": [
+            {"title": "Red", "price": "1299.00", "available": True, "sku": None, "ids": [1]},
+            {"title": "Blue", "price": "1399.00", "available": False, "sku": "B2"},
+        ],
+    }
+    row = flatten(product)
+    assert row["variants.price"] == "1299.00; 1399.00"
+    assert row["variants.available"] == "True; False"
+    assert row["variants.sku"] == "; B2"
+    assert "variants.ids" not in row  # nested values stay in the JSON column
+    assert json.loads(row["variants"])[1]["title"] == "Blue"
 
 
 # --- a POST search the user allowed ---
@@ -158,3 +174,33 @@ def test_allow_is_remembered_by_later_generates(tmp_path: Path, search_server: s
         again = generate_client(store, "127.0.0.1", out)  # no --allow this time
     assert [m.http_method for m in first.spec.methods] == ["POST"]
     assert [m.name for m in again.spec.methods] == [m.name for m in first.spec.methods]
+
+
+def test_a_rate_limited_page_is_retried_after_a_wait(shop_db: tuple[Path, str]) -> None:
+    """Shopify's /products.json answers 429 after a few pages, even at one request a second."""
+    from ghost_api.probe.replay import ReplayResult
+    from ghost_api.runtime import RATE_LIMIT_WAITS
+
+    db, _ = shop_db
+    with Store(db) as store, SiteRuntime(store, "127.0.0.1", fast_replayer("127.0.0.1")) as rt:
+        op = rt.operation("get_products")
+        real_call, calls, waits = rt.call, [], []
+
+        def flaky(op_: Any, params: Any = None) -> ReplayResult:
+            calls.append(dict(params or {}))
+            if len(calls) == 2:  # page 2, first try
+                return ReplayResult(429, {"errors": "Too many requests"})
+            return real_call(op_, params)
+
+        rt.call = flaky  # type: ignore[method-assign]
+        rt.sleep = waits.append
+        pages = list(rt.iterate(op, {"per_page": "6"}, max_pages=3))
+        assert [p.number for p in pages] == [1, 2, 3] and all(p.result.ok for p in pages)
+        assert waits == [RATE_LIMIT_WAITS[0]]
+
+        calls.clear()
+        waits.clear()
+        rt.call = lambda op_, params=None: ReplayResult(429, None)  # type: ignore[method-assign]
+        pages = list(rt.iterate(op, {}, max_pages=3))
+        assert len(pages) == 1 and pages[0].result.status == 429  # gave up after the waits
+        assert waits == list(RATE_LIMIT_WAITS)

@@ -59,6 +59,87 @@ class ReplayRefused(Exception):
     """The request is not safe or not allowed to replay."""
 
 
+def status_text(status: int) -> str:
+    """'HTTP 404 Not Found'."""
+    reason = httpx.codes.get_reason_phrase(status)
+    return f"HTTP {status} {reason}" if reason else f"HTTP {status}"
+
+
+def not_json_error(status: int, content_type: str | None) -> str:
+    """Why a reply can't be used, with what came back instead of JSON. The status comes
+    first: 'not JSON' alone hid that an endpoint was gone (a 404 HTML page)."""
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    if "html" in ctype:
+        kind = "an HTML page"
+    elif ctype.startswith("text/"):
+        kind = "plain text"
+    elif ctype:
+        kind = ctype
+    else:
+        kind = "something else"
+    if status in (404, 410):
+        hint = " (the endpoint seems to be gone)"
+    elif status in (401, 403):
+        hint = " (it needs a login or a key)"
+    else:
+        hint = ""
+    return f"{status_text(status)}{hint}: the reply is {kind}, not JSON"
+
+
+# Keys an error envelope carries a status in, and keys that hold its explanation.
+_STATUS_KEYS = ("statusCode", "status_code", "status", "httpStatus", "http_status", "code")
+_MESSAGE_KEYS = ("message", "error", "error_description", "errorMessage", "msg", "detail")
+# A reply made only of these keys is an error report, not data.
+_ERROR_ONLY_KEYS = {
+    "error", "errors", "message", "msg", "detail", "code", "status", "statusCode",
+    "status_code", "success", "ok", "requestId", "request_id", "timestamp", "time", "path",
+    "error_description", "errorMessage", "type", "title", "trace_id", "traceId",
+}  # fmt: skip
+
+
+def _short(value: Any) -> str:
+    if isinstance(value, dict):
+        value = next((value[k] for k in _MESSAGE_KEYS if isinstance(value.get(k), str)), value)
+    if isinstance(value, list) and value:
+        return _short(value[0])
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= 160 else text[:157] + "..."
+
+
+def error_in_body(body: Any) -> str | None:
+    """The error a 2xx reply reports inside its JSON, or None if it looks like data.
+
+    Some APIs answer HTTP 200 with {"statusCode": 403, "message": "API key must ..."};
+    counting that as a row of data hid the failure. Strict on purpose: a record that
+    merely has a "status" or "error": null field is data.
+    """
+    if not isinstance(body, dict) or not body:
+        return None
+    message = next(
+        (body[k] for k in _MESSAGE_KEYS if isinstance(body.get(k), (str, dict)) and body[k]),
+        None,
+    )
+    for key in _STATUS_KEYS:
+        value = body.get(key)
+        if isinstance(value, str) and value.isdigit():
+            value = int(value)
+        is_error_status = (
+            isinstance(value, int) and not isinstance(value, bool) and 400 <= value <= 599
+        )
+        if is_error_status and (message is not None or set(body) <= _ERROR_ONLY_KEYS):
+            return f"{value}" + (f" {_short(message)}" if message is not None else "")
+    errors = body.get("errors")
+    if errors and not body.get("data") and set(body) <= {"errors", "data", "extensions"}:
+        return _short(errors)  # GraphQL: errors and no data
+    if (
+        set(body) <= _ERROR_ONLY_KEYS
+        and body.get("success") is not True
+        and (body.get("error") or body.get("errors") or body.get("success") is False)
+    ):
+        return _short(body.get("error") or body.get("errors") or message or body)
+    return None
+
+
 @dataclass
 class ReplayResult:
     status: int
@@ -309,5 +390,9 @@ class Replayer:
             personal=personal_data,
             third_party=filters.is_third_party(raw.url, self.target_host),
         )
-        error = None if body is not None else "response is not JSON"
+        error = None if body is not None else not_json_error(resp.status_code, ctype)
+        if error is None and 200 <= resp.status_code < 300:
+            reported = error_in_body(body)
+            if reported is not None:
+                error = f"{status_text(resp.status_code)}, but the reply is an error: {reported}"
         return ReplayResult(resp.status_code, body, error, captured)

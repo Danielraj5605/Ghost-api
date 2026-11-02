@@ -261,8 +261,8 @@ def _evidence(result: ReplayResult) -> str:
     if result.error and result.status == 0:
         return result.error
     text = f"HTTP {result.status}"
-    if result.error:
-        text += f", {result.error}"
+    if result.error:  # replay errors may already start with the status
+        text = result.error if result.error.startswith("HTTP ") else f"{text}, {result.error}"
     elif result.ok:
         items = detectors.find_items(result.body)
         if items is not None:

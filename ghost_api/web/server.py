@@ -687,4 +687,7 @@ def serve(
     console.print("[dim]Local only. Press Ctrl+C to stop.[/]")
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    from ghost_api.quiet_resets import quiet_connection_resets
+
+    quiet_connection_resets()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

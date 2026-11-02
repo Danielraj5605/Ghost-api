@@ -128,5 +128,44 @@ describe("OtherTools", () => {
     expect(text).toContain("ghost-api fetch turftown.in/chennai get_nearby_venues area=velachery --format xlsx");
     expect(text).toContain("http://127.0.0.1:8900/turftown.in~chennai/get_nearby_venues?format=csv");
     expect(text).toContain("claude mcp add ghost-turftown -- ghost-api mcp turftown.in/chennai");
+    expect(text).toContain('pipx install --force "ghost-api-cli[mcp]"');
+    expect(screen.getByRole("button", { name: /Download now/ })).toBeTruthy();
+  });
+
+  it("prefers verified endpoints, even on another service, and lets you pick", async () => {
+    const { OtherTools } = await import("./OtherTools");
+    const base = { method: "GET", path: "/x", callable: true, inputs: [] };
+    const endpoints = [
+      { ...base, key: "a", label: "GET /products/{product}", host: "goboult.co.in", third_party: false, status: "unverified", operation: "get_product" },
+      { ...base, key: "b", label: "POST api.wizsearch.in/v1/products/search", host: "api.wizsearch.in", third_party: true, status: "verified", operation: "search_products" },
+      { ...base, key: "c", label: "GET api.country.is/", host: "api.country.is", third_party: true, status: "verified", operation: "get_country_info" },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<OtherTools site="goboult.co.in" endpoints={endpoints as any} />);
+    expect(document.body.textContent).toContain("ghost-api fetch goboult.co.in search_products --format xlsx");
+    fireEvent.change(screen.getByLabelText("Operation"), { target: { value: "c" } });
+    expect(document.body.textContent).toContain("ghost-api fetch goboult.co.in get_country_info --format xlsx");
+  });
+
+  it("says whether the web API server is running", async () => {
+    const { OtherTools } = await import("./OtherTools");
+    const endpoint = {
+      key: "k", label: "GET /x", method: "GET", host: "example.com", path: "/x",
+      third_party: false, callable: true, operation: "list_x", inputs: [],
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError("refused"))) as typeof fetch;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      render(<OtherTools site="example.com" endpoints={[endpoint as any]} />);
+      expect(await screen.findByText(/Not running yet/)).toBeTruthy();
+      cleanup();
+      globalThis.fetch = (() => Promise.resolve(new Response(null))) as typeof fetch;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      render(<OtherTools site="example.com" endpoints={[endpoint as any]} />);
+      expect(await screen.findByText(/Open the link/)).toBeTruthy();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

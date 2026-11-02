@@ -345,6 +345,9 @@ def mock(
         )
     console.print("[dim]Point your client's base URL here. Local only. Ctrl+C to stop.[/]")
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    from ghost_api.quiet_resets import quiet_connection_resets
+
+    quiet_connection_resets()
     uvicorn.run(create_mock_app(routes, domain, hosts), host="127.0.0.1", port=port,
                 log_level="warning")  # fmt: skip
 

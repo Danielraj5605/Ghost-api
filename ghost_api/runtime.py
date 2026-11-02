@@ -8,6 +8,7 @@ stored sample with the caller's parameters, through the same `Replayer` the prob
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -36,6 +37,8 @@ from ghost_api.site import site_host
 
 MAX_PAGES = 50
 MAX_ROWS = 10_000
+# Waits before retrying a page the site rate-limited (HTTP 429); then the page fails.
+RATE_LIMIT_WAITS = (5.0, 15.0)
 
 
 class OperationError(Exception):
@@ -84,6 +87,7 @@ class SiteRuntime:
         """`include_sensitive`: return personal data (emails, phones, PAN...) as the site
         sends it. Only for auditing your own site; by default such values are hidden."""
         self.site = site
+        self.sleep: Callable[[float], None] = time.sleep  # tests replace it
         self.include_sensitive = include_sensitive
         run_id = store.latest_endpoint_run(site)
         if run_id is None:
@@ -183,6 +187,11 @@ class SiteRuntime:
         rows = 0
         for number in range(1, min(max_pages, MAX_PAGES) + 1):
             result = self.call(op, params)
+            for wait in RATE_LIMIT_WAITS:  # e.g. Shopify's /products.json after a few pages
+                if result.status != 429:
+                    break
+                self.sleep(wait)
+                result = self.call(op, params)
             records = records_of(result.body, is_single(op)) if result.ok else []
             fresh = [k for k in item_fingerprints(records) if k not in seen]
             if result.ok and records and not fresh:
@@ -316,7 +325,11 @@ def is_single(op: Operation) -> bool:
 
 
 def flatten(record: Any, prefix: str = "") -> dict[str, Any]:
-    """{'venue': {'name': 'X'}, 'tags': ['a', 'b']} -> {'venue.name': 'X', 'tags': 'a; b'}."""
+    """{'venue': {'name': 'X'}, 'tags': ['a', 'b']} -> {'venue.name': 'X', 'tags': 'a; b'}.
+
+    A list of objects stays as JSON, plus one column per plain field joined across the
+    items: {'variants': [{'price': '10'}, {'price': '12'}]} adds 'variants.price': '10; 12'
+    (a Shopify product's prices live in its variants)."""
     if not isinstance(record, dict):
         return {prefix or "value": record}
     out: dict[str, Any] = {}
@@ -327,9 +340,22 @@ def flatten(record: Any, prefix: str = "") -> dict[str, Any]:
         elif isinstance(value, list):
             scalars = all(not isinstance(v, dict | list) for v in value)
             out[name] = "; ".join(str(v) for v in value) if scalars else json.dumps(value)
+            if value and all(isinstance(v, dict) for v in value):
+                out.update(_joined_fields(value, name))
         else:
             out[name] = value
     return out
+
+
+def _joined_fields(items: list[dict[str, Any]], name: str) -> dict[str, str]:
+    fields: dict[str, None] = {}  # first-seen order
+    for item in items:
+        fields.update((k, None) for k, v in item.items() if not isinstance(v, dict | list))
+    return {
+        f"{name}.{field}": "; ".join("" if item.get(field) is None else str(item.get(field))
+                                     for item in items)
+        for field in fields
+    }  # fmt: skip
 
 
 def _next_position(

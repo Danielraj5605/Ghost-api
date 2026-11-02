@@ -193,9 +193,11 @@ def diff(
         if old is None or old["gone"]:
             changes.append(Change("new", key, title_of(row)))
             continue
+        # A field the last snapshot didn't have is a new column (e.g. after an update to
+        # how rows are flattened), not a change in the item: compare only known fields.
         fields = {
             name: [old["data"].get(name), row.get(name)]
-            for name in sorted(set(row) | set(old["data"]))
+            for name in sorted(old["data"])
             if _tracked(name, track) and _differs(old["data"].get(name), row.get(name))
         }
         if fields:

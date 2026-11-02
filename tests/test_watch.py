@@ -206,3 +206,14 @@ def test_dashboard_watch_routes(shop_db: tuple[Path, str], tmp_path: Path) -> No
     assert again["rows"] == 30 and again["changes"] == []
     assert client.delete(f"/api/watches/{watch_id}", headers=auth).status_code == 200
     assert client.post(f"/api/watches/{watch_id}/check", headers=auth).status_code == 404
+
+
+def test_a_new_column_is_not_a_change() -> None:
+    """Rows flattened with more columns than the last snapshot (variants.price) are not
+    reported as changed; a known field that moves still is."""
+    old = {"k": {"data": {"title": "A", "variants": "[...]"}, "gone": False}}
+    new = {"k": {"title": "A", "variants": "[...]", "variants.price": "1299.00"}}
+    assert watch.diff(old, new, set(), complete=True) == []
+    new["k"]["title"] = "B"
+    (change,) = watch.diff(old, new, set(), complete=True)
+    assert change.fields == {"title": ["A", "B"]}

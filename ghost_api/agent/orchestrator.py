@@ -303,8 +303,9 @@ class Explorer:
             self.add_sample(result.captured, request)
         items = find_items(result.body) if result.ok else None
         summary = f"HTTP {result.status}"
-        if result.error:
-            summary += f", {result.error}"
+        if result.error:  # replay errors may already start with the status
+            err = result.error
+            summary = err if err.startswith("HTTP ") else f"{summary}, {err}"
         elif items is not None:
             summary += f", {len(items)} records"
         return f"called {target.label} with {params}: {summary}", [result.captured]

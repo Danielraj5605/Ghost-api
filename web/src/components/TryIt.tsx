@@ -8,7 +8,7 @@ import { CodeBlock } from "./CodeBlock";
 import { Button, ErrorBox, Pill } from "./ui";
 
 /** Inputs from the server, or (older data) from the endpoint's path/query parameters. */
-function inputsOf(endpoint: EndpointDetail): EndpointInput[] {
+export function inputsOf(endpoint: EndpointDetail): EndpointInput[] {
   if (endpoint.inputs) return endpoint.inputs;
   return endpoint.params
     .filter((p) => !p.sensitive)
