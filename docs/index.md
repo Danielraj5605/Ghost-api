@@ -9,7 +9,7 @@ hide:
 
 <section class="gh-hero" markdown>
 
-[Version 0.2.0 is on PyPI](https://pypi.org/project/ghost-api-cli/){ .gh-badge }
+[Version 0.3.0 is on PyPI](https://pypi.org/project/ghost-api-cli/){ .gh-badge }
 
 # Find a website's hidden API. Get a typed, tested client.
 

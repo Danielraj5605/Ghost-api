@@ -6,6 +6,28 @@ and versions follow [Semantic Versioning](https://semver.org/): until 1.0, a min
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+### Added
+- Shopify catalogue feeds: a Shopify store's pages never call `/products.json`, so the
+  browser never saw it. When the traffic shows a Shopify store, the feed is fetched
+  directly (GET only, with robots.txt, the rate limit and the request budget applied) and
+  becomes an endpoint like any other.
+- Dashboard: the "other tools" panel builds copy-paste commands for a site and shows
+  whether `ghost-api serve` is running.
+
+### Changed
+- Replies that look usable but aren't (an HTML error page, an error sent with HTTP 200)
+  now say what came back and why, e.g. "HTTP 404 Not Found (the endpoint seems to be
+  gone): the reply is an HTML page, not JSON".
+- Paged fetches wait and retry after HTTP 429 (5 s, then 15 s) before a page fails.
+- Lists of objects are flattened to one column per field as well (a product's variant
+  prices become `variants.price`), and watches don't report a new column as a change.
+
+### Fixed
+- On Windows, the harmless "connection reset" traceback the local servers printed when a
+  browser closed a connection is no longer shown.
+
 ### Security
 - Generated clients: text from a site's URLs can no longer become code. A path such as
   `/api/%7B...%7D` was decoded and written inside a Python f-string or a TypeScript
@@ -129,6 +151,7 @@ endpoint testing, Python and TypeScript clients with tests, verification and rep
 reports, OpenAPI, the web dashboard, memory and refresh, fetch, watches, REST and MCP
 servers, and the personal-data leak check.
 
-[Unreleased]: https://github.com/Danielraj5605/Ghost-api/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Danielraj5605/Ghost-api/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Danielraj5605/Ghost-api/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Danielraj5605/Ghost-api/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Danielraj5605/Ghost-api/releases/tag/v0.1.0
