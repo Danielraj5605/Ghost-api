@@ -6,7 +6,7 @@ what goes wrong, how it was found, and a suggested fix.
 **Priority:** P1 = safety or wrong results, fix first · P2 = makes sites or features fail ·
 P3 = quality and polish · Env = outside the code.
 
-Last updated: 2026-10-15 (network boundary, audit fixes).
+Last updated: 2026-11-02 (every open entry re-checked against the code).
 
 ---
 
@@ -53,15 +53,16 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
   lessons cleaned and marked "may be outdated".
 - **Remaining risk:** the agent could still waste steps, or ask the user misleading questions
   through `ask_user`.
-- **Fix:** Wrap page content in clearly marked "untrusted data" blocks in the prompt, show
-  `ask_user` questions with a warning that they come from the agent, and add a test page
-  with injected instructions to the evaluation.
+- **Fix:** Show `ask_user` questions with a warning that they come from the agent. (The
+  marked page block and the injection test page are done, see above.)
 
 ---
 
 ## P2: Sites or features that fail
 
 ### 4. Generated clients don't identify the user, so sites like Wikipedia refuse them
+- **Partly better:** their User-Agent now names the client, Ghost API and the project URL.
+  A contact is still not added.
 - **Problem:** `GHOST_API_CONTACT` is added to the tool's own requests (robots.txt, browser)
   but not to the generated Python and TypeScript clients. Sites that require contact info
   (Wikimedia) will answer their requests with HTTP 403, so verification fails.
@@ -98,14 +99,18 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
 - **Fix:** Let `ghost-api doctor` list the provider's current models and suggest updates, or
   pick a working model from the provider's model list automatically.
 
-### 8. Rate limits are forgotten between runs
+### 8. ~~Rate limits are forgotten between runs~~ (fixed 2026-10-15)
+- **Fixed:** cooldowns are saved to `cooldowns.json` in the state folder and read when the
+  next run starts (`LLMGateway(cooldown_file=...)`).
 - **Problem:** Cooldowns live in memory, so each new run tries providers that the previous
   run just found rate-limited (books.toscrape.com failed this way in the first evaluation).
 - **Where:** `ghost_api/llm/gateway.py`.
 - **Fix:** Store cooldowns (provider, model, until) in the SQLite database and read them at
   start-up.
 
-### 9. Memory keeps only the latest run's endpoints
+### 9. ~~Memory keeps only the latest run's endpoints~~ (fixed 2026-10-15)
+- **Fixed:** `Store.current_endpoints()` returns the latest run's endpoints plus those found
+  by earlier runs, unless a refresh looked for them and they were gone.
 - **Problem:** `refresh` and code generation use the endpoints of the most recent run. An
   endpoint found in an earlier run but not in the latest is forgotten.
 - **Where:** `ghost_api/memory/knowledge.py`, `ghost_api/memory/store.py`.
@@ -119,16 +124,22 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
   (added, removed and type-changed fields), also in `report.md`.
 
 ### 11. Logged-in sites need manual work
+- **Partly fixed (2026-10-16):** `ghost-api login URL` opens a browser, you log in once, and
+  runs, refreshes, fetch, watch and serve reuse the saved session (encrypted with DPAPI on
+  Windows). Still open: generated clients need the cookie passed in, and sessions expire.
 - **Problem:** The agent can only ask you to log in when running `--headed` in an
   interactive terminal. Generated clients for cookie-protected endpoints need you to pass
   the cookie yourself, and sessions expire.
 - **Fix:** Document the workflow, and add a `--login` mode that opens the browser, waits
   for you to log in, then explores.
 
-### 12. GraphQL and WebSocket APIs are not supported
-- **Problem:** GraphQL queries all go to one URL, so they look like a single endpoint;
-  WebSocket traffic is not captured.
-- **Fix:** Group GraphQL requests by operation name, and generate one method per query.
+### 12. WebSocket APIs are not supported (GraphQL fixed 2026-10-16)
+- **Fixed:** each named GraphQL operation is its own endpoint and client method
+  (`ghost_api/analysis/graphql.py`); mutations are never replayed or generated.
+- **Problem:** WebSocket traffic is not captured, so APIs that push data over a socket are
+  not found.
+- **Fix:** Record WebSocket frames in the browser and describe the messages, without
+  generating a client for them at first.
 
 ---
 
@@ -142,13 +153,20 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
 - **Fix:** Add common words in other major languages; consider form method and button
   type as extra signals; allow a site-specific override.
 
-### 14. Robots.txt is only checked for the start host when navigating
+### 14. ~~Robots.txt is only checked for the start host when navigating~~ (fixed 2026-10-15)
+- **Fixed:** runs use `MultiHostRobotsPolicy` (`ghost_api/net.py`), which fetches and caches
+  robots.txt per host, so navigation to another subdomain is checked too.
 - **Problem:** `RobotsPolicy.allows()` returns `True` for other hosts, so browser navigation
   to another subdomain of the same site is not checked. (Direct calls are checked per host.)
 - **Where:** `ghost_api/net.py`, `ghost_api/agent/orchestrator.py`.
 - **Fix:** Fetch and cache robots.txt per host for navigation too, as the replayer does.
 
 ### 15. Redaction relies on names and a few patterns
+- **Improved (2026-11-02):** secret API keys with a well-known prefix (OpenAI, Anthropic,
+  GitHub, AWS, Slack, Stripe, Groq) are now hidden by their value whatever the field is
+  called (e.g. `?key=...`), and form body values are checked too. Google's public browser
+  keys (`AIza...`) are kept on purpose: sites ship them in their pages, and replaying a
+  stored call needs them.
 - **Problem:** Secrets are found by field and header names (`token`, `api_key`...) and by
   JWT and bearer patterns. A secret in an oddly named field, or in a non-JSON, non-form body,
   could be stored.
@@ -175,6 +193,9 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
 - **Fix:** Re-weight them after more evaluation runs.
 
 ### 20. The evaluation is small
+- **Improved:** the corpus has 15 sites (`evals/sites.json`), including paging styles, an
+  API-key header, robots.txt, a huge reply, a bot wall, personal data, GraphQL and the
+  prompt-injection page. Most are local test sites, so the point below still holds.
 - **Problem:** Four sites is enough to find bugs, not to make general claims. Open Library
   (in the original plan) was not evaluated, and Wikipedia stops by design.
 - **Fix:** Add more permissive sites with known answers, plus the injection test page
@@ -200,15 +221,18 @@ Last updated: 2026-10-15 (network boundary, audit fixes).
 - **Problem:** The last unticked item in the acceptance checklist.
 - **Fix:** Record a `--headed` run on the demo shop.
 
-### 23. Not published yet, and the user-agent has a TODO
-- **Problem:** No GitHub repository yet; `ghost_api/config.py` has a TODO to add the
+### 23. ~~Not published yet, and the user-agent has a TODO~~ (fixed)
+- **Fixed:** the repository is https://github.com/Danielraj5605/Ghost-api, v0.2.0 is on PyPI
+  as `ghost-api-cli`, and the user-agent includes the project URL (`PROJECT_URL` in
+  `ghost_api/config.py`).
+- **Problem:** No GitHub repository yet; `ghost_api/config.py` had a TODO to add the
   project URL to the user-agent.
-- **Fix:** Create the repository, push, and add the URL.
 
 ### 24. A `build/` folder is in the git history
 - **Problem:** It was committed by mistake in one commit (`ecb4da9`) and removed in the next.
   It contains only a copy of the package, no secrets.
-- **Fix:** Nothing needed, unless a clean history matters before publishing.
+- **Fix:** Nothing needed. The project is published now, so rewriting history would cost
+  more than it saves.
 
 ### 27. README images are recorded by hand
 - **Problem:** The screenshots, the terminal SVG and the GIF in `docs/images/` were made with
@@ -319,6 +343,11 @@ A real run on `https://www.google.com/maps` failed at once. Fixed, each with a t
 ### 39. ~~Direct requests resolve host names twice~~ (fixed 2026-10-17)
 - **Fixed:** direct requests connect to the exact address the policy checked (a pinned
   network backend), like the browser proxy. A test proves no second lookup happens.
+- **Remaining risk:** the pinning is installed through an httpx internal
+  (`transport._pool._network_backend` in `ghost_api/netguard.py`). If an httpx update renames
+  it, `guarded_client` silently skips the pinning; the per-request check still runs, but the
+  rebinding window comes back. **Fix:** raise an error when the attribute is missing, and
+  test that the backend really is `PinnedBackend`.
 - **Problem:** The browser's proxy connects to the exact address it checked. Direct requests
   (httpx: robots.txt, endpoint checks, fetch, watch) check the name, then httpx resolves it
   again, so a DNS-rebinding server could switch to a private address in between.
